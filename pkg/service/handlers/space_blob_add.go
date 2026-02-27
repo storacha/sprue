@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ipld/go-ipld-prime/datamodel"
-	"go.uber.org/zap"
 	"github.com/ipld/go-ipld-prime/fluent/qp"
 	basicnode "github.com/ipld/go-ipld-prime/node/basic"
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
@@ -26,6 +25,7 @@ import (
 	ed25519signer "github.com/storacha/go-ucanto/principal/ed25519/signer"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
+	"go.uber.org/zap"
 
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/state"
