@@ -39,9 +39,9 @@ func WithUploadAddMethod(s UploadAddService) server.Option {
 				iCtx server.InvocationContext,
 			) (result.Result[upload.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
 
-				spaceDID := cap.With()      // Space DID
-				root := cap.Nb().Root       // Root CID of the upload
-				shards := cap.Nb().Shards   // Shard CIDs (blob links)
+				spaceDID := cap.With()    // Space DID
+				root := cap.Nb().Root     // Root CID of the upload
+				shards := cap.Nb().Shards // Shard CIDs (blob links)
 
 				// Parse the space DID
 				space, err := did.Parse(spaceDID)

@@ -6,7 +6,6 @@ import (
 	"net/url"
 
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
-	"go.uber.org/zap"
 	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	uclient "github.com/storacha/go-ucanto/client"
 	"github.com/storacha/go-ucanto/core/delegation"
@@ -18,6 +17,7 @@ import (
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/principal"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
+	"go.uber.org/zap"
 )
 
 // DelegationFetcher provides an interface for fetching delegation proofs on-demand.
