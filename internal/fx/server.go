@@ -1,0 +1,105 @@
+package fx
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	"go.uber.org/fx"
+	"go.uber.org/zap"
+
+	"github.com/storacha/sprue/internal/config"
+	"github.com/storacha/sprue/pkg/identity"
+	"github.com/storacha/sprue/pkg/service"
+)
+
+// ServerModule provides the HTTP server with lifecycle management.
+var ServerModule = fx.Module("server",
+	fx.Provide(NewEchoServer),
+	fx.Invoke(RegisterServerLifecycle),
+)
+
+// NewEchoServer creates and configures the Echo HTTP server.
+func NewEchoServer(
+	id *identity.Identity,
+	svc *service.Service,
+) *echo.Echo {
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+
+	// Middleware
+	e.Use(middleware.Recover())
+	e.Use(middleware.RequestID())
+	e.Use(middleware.Logger())
+
+	// Routes
+	e.GET("/", infoHandler(id))
+	e.GET("/health", healthHandler)
+	e.GET("/.well-known/did.json", didDocumentHandler(id))
+	e.POST("/", svc.HandleUCANRequest)
+	e.GET("/receipt/:cid", svc.HandleReceiptRequest)
+
+	return e
+}
+
+// RegisterServerLifecycle hooks server start/stop to fx lifecycle.
+func RegisterServerLifecycle(
+	lc fx.Lifecycle,
+	e *echo.Echo,
+	cfg *config.Config,
+	logger *zap.Logger,
+	id *identity.Identity,
+) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+			logger.Info("starting sprue service",
+				zap.String("address", addr),
+				zap.String("did", id.DID()),
+			)
+
+			go func() {
+				if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
+					logger.Fatal("server error", zap.Error(err))
+				}
+			}()
+
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			logger.Info("shutting down server")
+			shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			return e.Shutdown(shutdownCtx)
+		},
+	})
+}
+
+// infoHandler returns service information.
+func infoHandler(id *identity.Identity) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"service": "sprue",
+			"did":     id.DID(),
+			"version": "0.1.0",
+		})
+	}
+}
+
+// healthHandler returns health status.
+func healthHandler(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]string{
+		"status": "healthy",
+	})
+}
+
+// didDocumentHandler returns the DID document for did:web resolution.
+func didDocumentHandler(id *identity.Identity) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		return c.JSON(http.StatusOK, id.DIDDocument())
+	}
+}

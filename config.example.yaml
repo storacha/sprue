@@ -1,0 +1,55 @@
+# Sprue Configuration
+#
+# This file documents all configuration options. Copy to config.yaml and customize.
+# All values can also be set via environment variables with UPLOAD_ prefix.
+# Environment variables take precedence over config file values.
+#
+# Examples:
+#   server.host -> UPLOAD_SERVER_HOST
+#   dynamodb.endpoint -> UPLOAD_DYNAMODB_ENDPOINT
+#
+
+server:
+  # Host address to bind the HTTP server to
+  host: "0.0.0.0"
+  # Port to listen on
+  port: 8080
+
+identity:
+  # Path to Ed25519 PEM key file for service identity
+  # Takes precedence over private_key if set
+  key_file: ""
+  # Base64-encoded Ed25519 private key (fallback if key_file not set)
+  # If neither is set, a key will be generated at startup
+  private_key: ""
+  # did:web identity wrapper (e.g., "did:web:upload")
+  # When set with key_file, allows accepting UCANs addressed to this did:web
+  service_did: ""
+
+indexer:
+  # URL of the indexing service (port 80 for did:web resolution in Docker)
+  endpoint: "http://indexer:80"
+  # DID of the indexer service (optional, derived from endpoint hostname)
+  did: ""
+
+dynamodb:
+  # DynamoDB endpoint (for local development with DynamoDB Local)
+  endpoint: "http://dynamodb-local:8000"
+  # AWS region for DynamoDB
+  region: "us-west-1"
+  # Table name for provider info (from delegator service)
+  provider_table: "delegator-provider-info"
+  # Table name for blob allocations
+  allocations_table: "upload-allocations"
+  # Table name for UCAN receipts
+  receipts_table: "upload-receipts"
+  # Table name for auth requests
+  auth_requests_table: "upload-auth-requests"
+  # Table name for space provisionings
+  provisionings_table: "upload-provisionings"
+  # Table name for uploads
+  uploads_table: "upload-uploads"
+
+log:
+  # Log level: debug, info, warn, error
+  level: "info"
