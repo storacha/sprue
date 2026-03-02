@@ -6,6 +6,8 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  release:
+    types: [published]
 
 # Cancel in-progress runs on new pushes to same ref
 concurrency:
@@ -73,7 +75,7 @@ jobs:
   # Build prod only on release tag
   publish-release:
     name: Publish Release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
