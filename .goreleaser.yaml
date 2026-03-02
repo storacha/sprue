@@ -43,10 +43,9 @@ dockers:
   # AMD64 image
   - image_templates:
       - "ghcr.io/storacha/sprue:{{ .Version }}-amd64"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.release
     use: buildx
     build_flag_templates:
-      - "--target=prod"
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
@@ -58,10 +57,9 @@ dockers:
   # ARM64 image
   - image_templates:
       - "ghcr.io/storacha/sprue:{{ .Version }}-arm64"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.release
     use: buildx
     build_flag_templates:
-      - "--target=prod"
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
