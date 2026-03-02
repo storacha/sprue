@@ -38,16 +38,3 @@ release:
 
 changelog:
   disable: true
-
-dockers:
-  - image_templates:
-      - "ghcr.io/storacha/sprue:{{ .Version }}"
-      - "ghcr.io/storacha/sprue:v{{ .Version }}"
-      - "ghcr.io/storacha/sprue:latest"
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
