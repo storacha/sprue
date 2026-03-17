@@ -13,6 +13,7 @@ type Config struct {
 	Identity IdentityConfig `mapstructure:"identity"`
 	Indexer  IndexerConfig  `mapstructure:"indexer"`
 	DynamoDB DynamoDBConfig `mapstructure:"dynamodb"`
+	S3       S3Config       `mapstructure:"s3"`
 	Log      LogConfig      `mapstructure:"log"`
 }
 
@@ -72,6 +73,33 @@ type DynamoDBConfig struct {
 
 	// UploadsTable is the table name for uploads.
 	UploadsTable string `mapstructure:"uploads_table"`
+
+	AgentIndexTable      string `mapstructure:"agent_index_table"`
+	BlobRegistryTable    string `mapstructure:"blob_registry_table"`
+	ConsumerTable        string `mapstructure:"consumer_table"`
+	CustomerTable        string `mapstructure:"customer_table"`
+	DelegationTable      string `mapstructure:"delegation_table"`
+	SpaceMetricsTable    string `mapstructure:"space_metrics_table"`
+	AdminMetricsTable    string `mapstructure:"admin_metrics_table"`
+	ReplicaTable         string `mapstructure:"replica_table"`
+	RevocationTable      string `mapstructure:"revocation_table"`
+	StorageProviderTable string `mapstructure:"storage_provider_table"`
+	SubscriptionTable    string `mapstructure:"subscription_table"`
+	SpaceDiffTable       string `mapstructure:"space_diff_table"`
+	UploadTable          string `mapstructure:"upload_table"`
+}
+
+// S3Config holds S3 settings.
+type S3Config struct {
+	// Endpoint is the S3 endpoint (for local development).
+	Endpoint string `mapstructure:"endpoint"`
+
+	// Region is the AWS region for S3.
+	Region string `mapstructure:"region"`
+
+	AgentMessageBucket string `mapstructure:"agent_message_bucket"`
+	DelegationBucket   string `mapstructure:"delegation_bucket"`
+	UploadShardsBucket string `mapstructure:"upload_shards_bucket"`
 }
 
 // LogConfig holds logging settings.
@@ -99,11 +127,32 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("dynamodb.provisionings_table", "upload-provisionings")
 	v.SetDefault("dynamodb.uploads_table", "upload-uploads")
 
+	v.SetDefault("dynamodb.agent_index_table", "agent-index")
+	v.SetDefault("dynamodb.blob_registry_table", "blob-registry")
+	v.SetDefault("dynamodb.consumer_table", "consumer")
+	v.SetDefault("dynamodb.customer_table", "customer")
+	v.SetDefault("dynamodb.delegation_table", "delegation")
+	v.SetDefault("dynamodb.space_metrics_table", "space-metrics")
+	v.SetDefault("dynamodb.admin_metrics_table", "admin-metrics")
+	v.SetDefault("dynamodb.replica_table", "replica")
+	v.SetDefault("dynamodb.revocation_table", "revocation")
+	v.SetDefault("dynamodb.storage_provider_table", "storage-provider")
+	v.SetDefault("dynamodb.subscription_table", "subscription")
+	v.SetDefault("dynamodb.space_diff_table", "space-diff")
+	v.SetDefault("dynamodb.upload_table", "upload")
+
+	// S3 defaults
+	v.SetDefault("s3.endpoint", "http://minio:9000")
+	v.SetDefault("s3.region", "us-west-1")
+	v.SetDefault("s3.agent_message_bucket", "agent-message")
+	v.SetDefault("s3.delegation_bucket", "delegation")
+	v.SetDefault("s3.upload_shards_bucket", "upload-shards")
+
 	// Log defaults
 	v.SetDefault("log.level", "info")
 }
 
-// BindEnvVars sets up environment variable binding with UPLOAD_ prefix.
+// BindEnvVars sets up environment variable binding with SPRUE_ prefix.
 func BindEnvVars(v *viper.Viper) {
 	v.SetEnvPrefix("SPRUE")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
