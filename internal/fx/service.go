@@ -9,6 +9,7 @@ import (
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/service"
 	"github.com/storacha/sprue/pkg/state"
+	"github.com/storacha/sprue/pkg/store/agent"
 )
 
 // ServiceModule provides the UCAN service.
@@ -23,11 +24,12 @@ type ServiceParams struct {
 	Config        *config.Config
 	Identity      *identity.Identity
 	Store         state.StateStore
+	AgentStore    agent.Store
 	IndexerClient *indexerclient.Client `optional:"true"`
 	Logger        *zap.Logger
 }
 
 // NewService creates the UCAN service with all handlers registered.
 func NewService(p ServiceParams) (*service.Service, error) {
-	return service.New(p.Config, p.Identity, p.Store, p.IndexerClient, p.Logger)
+	return service.New(p.Config, p.Identity, p.Store, p.AgentStore, p.IndexerClient, p.Logger)
 }

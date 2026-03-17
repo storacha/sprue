@@ -3,28 +3,23 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"iter"
 	"net/http"
 
+	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/core/invocation"
+	"github.com/storacha/go-ucanto/core/car"
+	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/ipld"
-	"github.com/storacha/go-ucanto/core/ipld/block"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/go-ucanto/core/receipt/fx"
-	"github.com/storacha/go-ucanto/core/receipt/ran"
-	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
-	"github.com/storacha/go-ucanto/transport/car"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/ucan"
-	"github.com/storacha/go-ucanto/ucan/crypto/signature"
 	"go.uber.org/zap"
 
 	"github.com/storacha/sprue/internal/config"
@@ -33,6 +28,7 @@ import (
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	"github.com/storacha/sprue/pkg/state"
+	"github.com/storacha/sprue/pkg/store/agent"
 )
 
 // Service implements the sprue upload service logic.
@@ -40,17 +36,19 @@ type Service struct {
 	cfg           *config.Config
 	identity      *identity.Identity
 	state         state.StateStore
+	agentStore    agent.Store
 	indexerClient *indexerclient.Client
 	logger        *zap.Logger
 	ucanServer    server.ServerView[server.Service]
 }
 
 // New creates a new Service instance.
-func New(cfg *config.Config, id *identity.Identity, store state.StateStore, indexerClient *indexerclient.Client, logger *zap.Logger) (*Service, error) {
+func New(cfg *config.Config, id *identity.Identity, store state.StateStore, agentStore agent.Store, indexerClient *indexerclient.Client, logger *zap.Logger) (*Service, error) {
 	svc := &Service{
 		cfg:           cfg,
 		identity:      id,
 		state:         store,
+		agentStore:    agentStore,
 		indexerClient: indexerClient,
 		logger:        logger,
 	}
@@ -99,10 +97,32 @@ func (s *Service) createUCANServer() (server.ServerView[server.Service], error) 
 func (s *Service) HandleUCANRequest(c echo.Context) error {
 	r := c.Request()
 
-	res, err := s.ucanServer.Request(r.Context(), ucanhttp.NewRequest(r.Body, r.Header))
+	inBytes, inMsg, inIdx, err := decodeAndIndex(r.Body)
+	if err != nil {
+		return fmt.Errorf("decoding and indexing incoming agent message: %w", err)
+	}
+	r.Body.Close()
+
+	err = s.agentStore.Write(r.Context(), inMsg, inIdx, inBytes)
+	if err != nil {
+		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
+	}
+
+	res, err := s.ucanServer.Request(r.Context(), ucanhttp.NewRequest(bytes.NewReader(inBytes), r.Header))
 	if err != nil {
 		s.logger.Error("UCAN request error", zap.Error(err))
 		return fmt.Errorf("handling UCAN request: %w", err)
+	}
+
+	outBytes, outMsg, outIdx, err := decodeAndIndex(res.Body())
+	if err != nil {
+		return fmt.Errorf("decoding and indexing outgoing agent message: %w", err)
+	}
+	res.Body().Close()
+
+	err = s.agentStore.Write(r.Context(), outMsg, outIdx, outBytes)
+	if err != nil {
+		return fmt.Errorf("writing outgoing agent message to agent store: %w", err)
 	}
 
 	// Copy response headers
@@ -112,122 +132,57 @@ func (s *Service) HandleUCANRequest(c echo.Context) error {
 		}
 	}
 
-	return c.Stream(res.Status(), "", res.Body())
+	return c.Stream(res.Status(), "", bytes.NewReader(outBytes))
 }
 
-// receiptWithExtraBlocks wraps a receipt and includes additional blocks in its Blocks() iterator.
-type receiptWithExtraBlocks struct {
-	receipt.AnyReceipt
-	extraBlocks []block.Block
-}
-
-func (r *receiptWithExtraBlocks) Blocks() iter.Seq2[block.Block, error] {
-	return func(yield func(block.Block, error) bool) {
-		// First yield all blocks from the wrapped receipt
-		for blk, err := range r.AnyReceipt.Blocks() {
-			if !yield(blk, err) {
-				return
-			}
-		}
-		// Then yield extra blocks
-		for _, blk := range r.extraBlocks {
-			if !yield(blk, nil) {
-				return
-			}
-		}
+func decodeAndIndex(r io.Reader) ([]byte, message.AgentMessage, []agent.IndexEntry, error) {
+	body, err := io.ReadAll(r)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("reading request body: %w", err)
 	}
-}
-
-// Implement ipld.View interface
-func (r *receiptWithExtraBlocks) Root() ipld.Block {
-	return r.AnyReceipt.Root()
-}
-
-// Implement receipt.Receipt interface methods that delegate to wrapped receipt
-func (r *receiptWithExtraBlocks) Ran() ran.Ran {
-	return r.AnyReceipt.Ran()
-}
-
-func (r *receiptWithExtraBlocks) Out() result.Result[ipld.Node, ipld.Node] {
-	return r.AnyReceipt.Out()
-}
-
-func (r *receiptWithExtraBlocks) Fx() fx.Effects {
-	return r.AnyReceipt.Fx()
-}
-
-func (r *receiptWithExtraBlocks) Meta() map[string]any {
-	return r.AnyReceipt.Meta()
-}
-
-func (r *receiptWithExtraBlocks) Issuer() ucan.Principal {
-	return r.AnyReceipt.Issuer()
-}
-
-func (r *receiptWithExtraBlocks) Proofs() delegation.Proofs {
-	return r.AnyReceipt.Proofs()
-}
-
-func (r *receiptWithExtraBlocks) Signature() signature.SignatureView {
-	return r.AnyReceipt.Signature()
-}
-
-func (r *receiptWithExtraBlocks) VerifySignature(verifier signature.Verifier) (bool, error) {
-	return r.AnyReceipt.VerifySignature(verifier)
-}
-
-func (r *receiptWithExtraBlocks) Archive() io.Reader {
-	return r.AnyReceipt.Archive()
-}
-
-func (r *receiptWithExtraBlocks) Export() iter.Seq2[block.Block, error] {
-	return r.Blocks() // Same as Blocks for our purposes
-}
-
-func (r *receiptWithExtraBlocks) Clone() (receipt.Receipt[ipld.Node, ipld.Node], error) {
-	return r.AnyReceipt.Clone()
-}
-
-func (r *receiptWithExtraBlocks) AttachInvocation(inv invocation.Invocation) error {
-	return r.AnyReceipt.AttachInvocation(inv)
+	roots, blocks, err := car.Decode(bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("decoding CAR: %w", err)
+	}
+	if len(roots) != 1 {
+		return nil, nil, nil, fmt.Errorf("expected exactly one root in CAR, got %d", len(roots))
+	}
+	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(blocks))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("creating block reader: %w", err)
+	}
+	msg, err := message.NewMessage(roots[0], br)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("creating agent message: %w", err)
+	}
+	var entries []agent.IndexEntry
+	for ent, err := range agent.Index(msg) {
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("indexing agent message: %w", err)
+		}
+		entries = append(entries, ent)
+	}
+	return body, msg, entries, nil
 }
 
 // HandleReceiptRequest handles receipt retrieval requests.
 func (s *Service) HandleReceiptRequest(c echo.Context) error {
-	cidStr := c.Param("cid")
-	if cidStr == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "missing cid parameter",
-		})
-	}
-
-	s.logger.Debug("receipt request", zap.String("cid", cidStr))
-
-	storedRcpt, err := s.state.GetReceipt(c.Request().Context(), cidStr)
+	task, err := cid.Parse(c.Param("cid"))
 	if err != nil {
-		s.logger.Error("failed to get receipt", zap.String("cid", cidStr), zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "failed to get receipt",
-		})
-	}
-	if storedRcpt == nil {
-		s.logger.Debug("receipt not found", zap.String("cid", cidStr))
-		return c.JSON(http.StatusNotFound, map[string]string{
-			"error": "receipt not found",
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("invalid task CID: %v", err),
 		})
 	}
 
-	s.logger.Debug("receipt found, encoding as CAR",
-		zap.String("cid", cidStr),
-		zap.Int("extra_blocks", len(storedRcpt.ExtraBlocks)))
-
-	// Wrap the receipt with extra blocks if present
-	var rcpt receipt.AnyReceipt = storedRcpt.Receipt
-	if len(storedRcpt.ExtraBlocks) > 0 {
-		rcpt = &receiptWithExtraBlocks{
-			AnyReceipt:  storedRcpt.Receipt,
-			extraBlocks: storedRcpt.ExtraBlocks,
+	s.logger.Debug("receipt request", zap.String("task", task.String()))
+	rcpt, err := s.agentStore.GetReceipt(c.Request().Context(), task)
+	if err != nil {
+		if errors.Is(err, agent.ErrReceiptNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error": "receipt not found",
+			})
 		}
+		return fmt.Errorf("getting receipt: %w", err)
 	}
 
 	// Build an agent message containing the receipt
@@ -239,33 +194,8 @@ func (s *Service) HandleReceiptRequest(c echo.Context) error {
 		})
 	}
 
-	// Encode the message as CAR using the outbound codec
-	codec := car.NewOutboundCodec()
-	req, err := codec.Encode(msg)
-	if err != nil {
-		s.logger.Error("failed to encode message as CAR", zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "failed to encode message",
-		})
-	}
-
-	// Read the body into a buffer
-	body, err := io.ReadAll(req.Body())
-	if err != nil {
-		s.logger.Error("failed to read CAR body", zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "failed to read body",
-		})
-	}
-
-	// Copy headers
-	for key, vals := range req.Headers() {
-		for _, v := range vals {
-			c.Response().Header().Add(key, v)
-		}
-	}
-
-	return c.Stream(http.StatusOK, "application/car", bytes.NewReader(body))
+	reader := car.Encode([]ipld.Link{msg.Root().Link()}, msg.Blocks())
+	return c.Stream(http.StatusOK, car.ContentType, reader)
 }
 
 // Identity returns the service identity.
