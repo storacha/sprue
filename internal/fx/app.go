@@ -1,16 +1,19 @@
 package fx
 
 import (
+	"github.com/storacha/sprue/internal/fx/service"
+	"github.com/storacha/sprue/internal/fx/store/aws"
 	"go.uber.org/fx"
 )
 
-// AppModule aggregates all application modules.
+// AppModule aggregates all application modules. It requires [config.Config] to
+// be provided by the caller, typically via [ConfigModule].
 var AppModule = fx.Options(
-	ConfigModule,
 	LoggerModule,
 	IdentityModule,
 	StoreModule,
+	aws.Module,
 	ClientsModule,
-	ServiceModule,
+	service.Module,
 	ServerModule,
 )

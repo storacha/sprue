@@ -29,7 +29,7 @@ type IdentityConfig struct {
 	// Takes precedence over PrivateKey if set.
 	KeyFile string `mapstructure:"key_file"`
 
-	// PrivateKey is the base64-encoded ed25519 private key for service identity.
+	// PrivateKey is the multibase base64-encoded ed25519 private key for service identity.
 	// If empty and KeyFile is not set, a key will be generated at startup.
 	PrivateKey string `mapstructure:"private_key"`
 

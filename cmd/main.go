@@ -42,6 +42,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Supply(appfx.ConfigParams{
 			ConfigFile: cfgFile,
 		}),
+		appfx.ConfigModule,
 		appfx.AppModule,
 		// Suppress fx's default logging, we use our own zap logger
 		fx.NopLogger,

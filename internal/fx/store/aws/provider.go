@@ -138,8 +138,8 @@ func NewS3Client(cfg *config.Config, logger *zap.Logger) (*s3.Client, error) {
 		opts = append(opts, awsconfig.WithBaseEndpoint(cfg.S3.Endpoint))
 		opts = append(opts, awsconfig.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
-				AccessKeyID:     "dummy",
-				SecretAccessKey: "dummy",
+				AccessKeyID:     "minioadmin",
+				SecretAccessKey: "minioadmin",
 			},
 		}))
 	}
@@ -149,7 +149,11 @@ func NewS3Client(cfg *config.Config, logger *zap.Logger) (*s3.Client, error) {
 		return nil, fmt.Errorf("loading AWS config: %w", err)
 	}
 
-	client := s3.NewFromConfig(awsCfg)
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		if cfg.S3.Endpoint != "" {
+			o.UsePathStyle = true
+		}
+	})
 	logger.Info("initialized S3 client",
 		zap.String("endpoint", cfg.S3.Endpoint),
 		zap.String("region", cfg.S3.Region),

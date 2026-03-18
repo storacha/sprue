@@ -1,9 +1,10 @@
-package fx
+package service
 
 import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
@@ -12,8 +13,8 @@ import (
 	"github.com/storacha/sprue/pkg/store/agent"
 )
 
-// ServiceModule provides the UCAN service.
-var ServiceModule = fx.Module("service",
+// Module provides the UCAN service.
+var Module = fx.Module("service",
 	fx.Provide(NewService),
 )
 
@@ -27,9 +28,10 @@ type ServiceParams struct {
 	AgentStore    agent.Store
 	IndexerClient *indexerclient.Client `optional:"true"`
 	Logger        *zap.Logger
+	Options       []server.Option `group:"ucan_options"`
 }
 
 // NewService creates the UCAN service with all handlers registered.
 func NewService(p ServiceParams) (*service.Service, error) {
-	return service.New(p.Config, p.Identity, p.Store, p.AgentStore, p.IndexerClient, p.Logger)
+	return service.New(p.Config, p.Identity, p.Store, p.AgentStore, p.IndexerClient, p.Logger, p.Options...)
 }

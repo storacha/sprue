@@ -10,23 +10,15 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 
 	"github.com/storacha/sprue/pkg/state"
 )
 
-// ProviderAddService defines the interface for the provider/add handler.
-type ProviderAddService interface {
-	ID() principal.Signer
-	State() state.StateStore
-	Logger() *zap.Logger
-}
-
 // WithProviderAddMethod registers the provider/add handler.
 // This handler provisions a space to an account.
-func WithProviderAddMethod(s ProviderAddService) server.Option {
+func WithProviderAddMethod(stateStore state.StateStore, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		provider.AddAbility,
 		server.Provide(
@@ -42,12 +34,12 @@ func WithProviderAddMethod(s ProviderAddService) server.Option {
 				// cap.Nb().Consumer = space DID
 
 				// Store the provisioning
-				if err := s.State().PutProvisioning(ctx, cap.Nb().Consumer, &state.Provisioning{
+				if err := stateStore.PutProvisioning(ctx, cap.Nb().Consumer, &state.Provisioning{
 					Account:  cap.With(),
 					Provider: cap.Nb().Provider,
 					Space:    cap.Nb().Consumer,
 				}); err != nil {
-					return result.Error[provider.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[provider.AddOk](
 						failure.FromError(err),
 					), nil, nil
 				}

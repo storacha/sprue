@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store/replica"
 	replicaaws "github.com/storacha/sprue/pkg/store/replica/aws"
 	"github.com/storacha/sprue/pkg/store/replica/memory"
