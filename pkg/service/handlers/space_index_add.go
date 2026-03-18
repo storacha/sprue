@@ -14,19 +14,10 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
-
 	"github.com/storacha/sprue/pkg/indexerclient"
 )
-
-// SpaceIndexAddService defines the interface for the space/index/add handler.
-type SpaceIndexAddService interface {
-	ID() principal.Signer
-	IndexerClient() *indexerclient.Client
-	Logger() *zap.Logger
-}
 
 // extractRetrievalAuth extracts the space/content/retrieve delegation from the
 // invocation facts. Guppy includes this delegation so the indexer can fetch
@@ -62,7 +53,7 @@ func extractRetrievalAuth(inv invocation.Invocation) (delegation.Delegation, err
 
 // WithSpaceIndexAddMethod registers the space/index/add handler.
 // This handler publishes index claims to the indexer service.
-func WithSpaceIndexAddMethod(s SpaceIndexAddService) server.Option {
+func WithSpaceIndexAddMethod(indexerClient *indexerclient.Client, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceindexcap.AddAbility,
 		server.Provide(
@@ -72,8 +63,6 @@ func WithSpaceIndexAddMethod(s SpaceIndexAddService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[spaceindexcap.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				logger := s.Logger()
-
 				spaceDID := cap.With()
 				index := cap.Nb().Index
 				content := cap.Nb().Content
@@ -83,7 +72,6 @@ func WithSpaceIndexAddMethod(s SpaceIndexAddService) server.Option {
 					zap.String("index", index.String()),
 					zap.Any("content", content))
 
-				indexerClient := s.IndexerClient()
 				if indexerClient == nil {
 					logger.Debug("space/index/add STUB: indexer not configured")
 					return result.Ok[spaceindexcap.AddOk, failure.IPLDBuilderFailure](

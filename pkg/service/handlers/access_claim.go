@@ -24,19 +24,13 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 
+	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/state"
 )
 
-// AccessClaimService defines the interface for the access/claim handler.
-type AccessClaimService interface {
-	ID() principal.Signer
-	State() state.StateStore
-	Logger() *zap.Logger
-}
-
 // WithAccessClaimMethod registers the access/claim handler.
 // This handler returns delegations for any pending auth requests.
-func WithAccessClaimMethod(s AccessClaimService) server.Option {
+func WithAccessClaimMethod(id *identity.Identity, stateStore state.StateStore, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.ClaimAbility,
 		server.Provide(
@@ -46,13 +40,11 @@ func WithAccessClaimMethod(s AccessClaimService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[access.ClaimOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				logger := s.Logger()
-
 				agentDID := inv.Issuer().DID().String()
 				logger.Debug("access/claim", zap.String("agent", agentDID))
 
 				// Find pending auth requests for this agent
-				requests, err := s.State().GetAuthRequestsByAgent(ctx, agentDID)
+				requests, err := stateStore.GetAuthRequestsByAgent(ctx, agentDID)
 				if err != nil {
 					logger.Error("failed to get auth requests", zap.Error(err))
 					return nil, nil, fmt.Errorf("getting auth requests: %w", err)
@@ -70,7 +62,7 @@ func WithAccessClaimMethod(s AccessClaimService) server.Option {
 					}
 
 					// Create ucan/attest session proof from service attesting to the delegation
-					sessionProof, err := createSessionProof(s.ID(), agentDID, accountDel.Link())
+					sessionProof, err := createSessionProof(id.Signer, agentDID, accountDel.Link())
 					if err != nil {
 						return nil, nil, fmt.Errorf("creating session proof: %w", err)
 					}
@@ -108,7 +100,7 @@ func WithAccessClaimMethod(s AccessClaimService) server.Option {
 						zap.Int("size", len(sessionArchive)))
 
 					// Mark as claimed
-					if err := s.State().MarkAuthRequestClaimed(ctx, req.RequestLink); err != nil {
+					if err := stateStore.MarkAuthRequestClaimed(ctx, req.RequestLink); err != nil {
 						logger.Error("failed to mark auth request claimed", zap.Error(err))
 					}
 				}

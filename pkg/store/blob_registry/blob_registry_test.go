@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/storacha/go-capabilities/pkg/blob"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 	blobregistryaws "github.com/storacha/sprue/pkg/store/blob_registry/aws"

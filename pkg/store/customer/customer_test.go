@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	"github.com/storacha/sprue/pkg/store/customer"
 	customeraws "github.com/storacha/sprue/pkg/store/customer/aws"

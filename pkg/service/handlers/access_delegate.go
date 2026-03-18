@@ -10,23 +10,13 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
-
-	"github.com/storacha/sprue/pkg/state"
 )
-
-// AccessDelegateService defines the interface for the access/delegate handler.
-type AccessDelegateService interface {
-	ID() principal.Signer
-	State() state.StateStore
-	Logger() *zap.Logger
-}
 
 // WithAccessDelegateMethod registers the access/delegate handler.
 // This handler stores delegations for later retrieval.
-func WithAccessDelegateMethod(s AccessDelegateService) server.Option {
+func WithAccessDelegateMethod(logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.DelegateAbility,
 		server.Provide(
@@ -36,8 +26,6 @@ func WithAccessDelegateMethod(s AccessDelegateService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[access.DelegateOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				logger := s.Logger()
-
 				agentDID := inv.Issuer().DID().String()
 				delegations := cap.Nb().Delegations
 				logger.Debug("access/delegate",

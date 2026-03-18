@@ -11,23 +11,14 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
-
 	"github.com/storacha/sprue/pkg/state"
 )
 
-// AccessAuthorizeService defines the interface for the access/authorize handler.
-type AccessAuthorizeService interface {
-	ID() principal.Signer
-	State() state.StateStore
-	Logger() *zap.Logger
-}
-
 // WithAccessAuthorizeMethod registers the access/authorize handler.
 // This handler auto-approves login requests immediately (no email verification).
-func WithAccessAuthorizeMethod(s AccessAuthorizeService) server.Option {
+func WithAccessAuthorizeMethod(stateStore state.StateStore, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.AuthorizeAbility,
 		server.Provide(
@@ -37,8 +28,6 @@ func WithAccessAuthorizeMethod(s AccessAuthorizeService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[access.AuthorizeOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				logger := s.Logger()
-
 				// Get the account DID from the caveats
 				accountDID := ""
 				if cap.Nb().Iss != nil {
@@ -51,7 +40,7 @@ func WithAccessAuthorizeMethod(s AccessAuthorizeService) server.Option {
 					zap.String("account", accountDID))
 
 				// Store the auth request for later claiming
-				if err := s.State().PutAuthRequest(ctx, inv.Link().String(), &state.AuthRequest{
+				if err := stateStore.PutAuthRequest(ctx, inv.Link().String(), &state.AuthRequest{
 					AgentDID:    agentDID,
 					AccountDID:  accountDID,
 					RequestLink: inv.Link().String(),
@@ -59,7 +48,7 @@ func WithAccessAuthorizeMethod(s AccessAuthorizeService) server.Option {
 					Claimed:     false,
 				}); err != nil {
 					logger.Error("failed to store auth request", zap.Error(err))
-					return result.Error[access.AuthorizeOk, failure.IPLDBuilderFailure](
+					return result.Error[access.AuthorizeOk](
 						failure.FromError(err),
 					), nil, nil
 				}

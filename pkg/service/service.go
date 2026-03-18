@@ -2,11 +2,11 @@ package service
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
@@ -16,7 +16,6 @@ import (
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/ucan"
@@ -25,8 +24,6 @@ import (
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
-	"github.com/storacha/sprue/pkg/piriclient"
-	"github.com/storacha/sprue/pkg/service/handlers"
 	"github.com/storacha/sprue/pkg/state"
 	"github.com/storacha/sprue/pkg/store/agent"
 )
@@ -40,10 +37,11 @@ type Service struct {
 	indexerClient *indexerclient.Client
 	logger        *zap.Logger
 	ucanServer    server.ServerView[server.Service]
+	options       []server.Option
 }
 
 // New creates a new Service instance.
-func New(cfg *config.Config, id *identity.Identity, store state.StateStore, agentStore agent.Store, indexerClient *indexerclient.Client, logger *zap.Logger) (*Service, error) {
+func New(cfg *config.Config, id *identity.Identity, store state.StateStore, agentStore agent.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
 	svc := &Service{
 		cfg:           cfg,
 		identity:      id,
@@ -51,6 +49,7 @@ func New(cfg *config.Config, id *identity.Identity, store state.StateStore, agen
 		agentStore:    agentStore,
 		indexerClient: indexerClient,
 		logger:        logger,
+		options:       options,
 	}
 
 	// Create UCAN server with handlers
@@ -76,20 +75,7 @@ func (s *Service) createUCANServer() (server.ServerView[server.Service], error) 
 		return true // Allow all invocations
 	}
 
-	options := []server.Option{
-		server.WithCanIssue(permissiveCanIssue),
-		handlers.WithAccessAuthorizeMethod(s),
-		handlers.WithAccessClaimMethod(s),
-		handlers.WithAccessDelegateMethod(s),
-		handlers.WithFilecoinOfferMethod(s),
-		handlers.WithProviderAddMethod(s),
-		handlers.WithSpaceBlobAddMethod(s),
-		handlers.WithSpaceBlobReplicateMethod(s),
-		handlers.WithSpaceIndexAddMethod(s),
-		handlers.WithUploadAddMethod(s),
-		handlers.WithUCANConcludeMethod(s),
-	}
-
+	options := append(slices.Clone(s.options), server.WithCanIssue(permissiveCanIssue))
 	return server.NewServer(s.identity.Signer, options...)
 }
 
@@ -196,62 +182,4 @@ func (s *Service) HandleReceiptRequest(c echo.Context) error {
 
 	reader := car.Encode([]ipld.Link{msg.Root().Link()}, msg.Blocks())
 	return c.Stream(http.StatusOK, car.ContentType, reader)
-}
-
-// Identity returns the service identity.
-func (s *Service) Identity() *identity.Identity {
-	return s.identity
-}
-
-// State returns the state store.
-func (s *Service) State() state.StateStore {
-	return s.state
-}
-
-// Config returns the service configuration.
-func (s *Service) Config() *config.Config {
-	return s.cfg
-}
-
-// Logger returns the logger.
-func (s *Service) Logger() *zap.Logger {
-	return s.logger
-}
-
-// ID returns the service's signer (implements handler interfaces).
-func (s *Service) ID() principal.Signer {
-	return s.identity.Signer
-}
-
-// IndexerClient returns the indexer client (may be nil if not configured).
-func (s *Service) IndexerClient() *indexerclient.Client {
-	return s.indexerClient
-}
-
-// PiriClient queries the provider table and creates a piri client on-demand.
-// This ensures we always use the most up-to-date provider information.
-func (s *Service) PiriClient(ctx context.Context) (*piriclient.Client, error) {
-	// Query provider from DynamoDB (delegator-provider-info table)
-	provider, err := s.state.GetFirstProvider(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get provider from state: %w", err)
-	}
-
-	if provider == nil || provider.DID == (did.DID{}) || provider.Endpoint == nil {
-		s.logger.Debug("no storage provider registered")
-		return nil, nil
-	}
-
-	// Create a new piri client for this provider
-	client, err := piriclient.New(provider.Endpoint, provider.DID, s.identity.Signer, s.state, s.logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create piri client: %w", err)
-	}
-
-	s.logger.Debug("created piri client from provider info",
-		zap.String("did", provider.DID.String()),
-		zap.String("endpoint", provider.Endpoint.String()),
-	)
-
-	return client, nil
 }

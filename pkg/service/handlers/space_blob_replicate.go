@@ -11,21 +11,14 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 )
 
-// SpaceBlobReplicateService defines the interface for the space/blob/replicate handler.
-type SpaceBlobReplicateService interface {
-	ID() principal.Signer
-	Logger() *zap.Logger
-}
-
 // WithSpaceBlobReplicateMethod registers the space/blob/replicate handler.
 // This is a stub implementation that acknowledges replication requests.
 // TODO: Implement actual replication logic.
-func WithSpaceBlobReplicateMethod(s SpaceBlobReplicateService) server.Option {
+func WithSpaceBlobReplicateMethod(logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceblobcap.ReplicateAbility,
 		server.Provide(
@@ -35,8 +28,6 @@ func WithSpaceBlobReplicateMethod(s SpaceBlobReplicateService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[spaceblobcap.ReplicateOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				logger := s.Logger()
-
 				spaceDID := cap.With()
 				blob := cap.Nb().Blob
 				replicas := cap.Nb().Replicas

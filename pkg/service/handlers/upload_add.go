@@ -12,23 +12,15 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 
 	"github.com/storacha/sprue/pkg/state"
 )
 
-// UploadAddService defines the interface for the upload/add handler.
-type UploadAddService interface {
-	ID() principal.Signer
-	State() state.StateStore
-	Logger() *zap.Logger
-}
-
 // WithUploadAddMethod registers the upload/add handler.
 // This handler registers an upload (root CID + shards mapping).
-func WithUploadAddMethod(s UploadAddService) server.Option {
+func WithUploadAddMethod(stateStore state.StateStore, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		upload.AddAbility,
 		server.Provide(
@@ -38,7 +30,6 @@ func WithUploadAddMethod(s UploadAddService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[upload.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-
 				spaceDID := cap.With()    // Space DID
 				root := cap.Nb().Root     // Root CID of the upload
 				shards := cap.Nb().Shards // Shard CIDs (blob links)
@@ -46,19 +37,19 @@ func WithUploadAddMethod(s UploadAddService) server.Option {
 				// Parse the space DID
 				space, err := did.Parse(spaceDID)
 				if err != nil {
-					return result.Error[upload.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[upload.AddOk](
 						failure.FromError(err),
 					), nil, nil
 				}
 
 				// Store the upload record
-				if err := s.State().PutUpload(ctx, spaceDID, &state.Upload{
+				if err := stateStore.PutUpload(ctx, spaceDID, &state.Upload{
 					Space:   space,
 					Root:    root,
 					Shards:  shards,
 					AddedAt: time.Now(),
 				}); err != nil {
-					return result.Error[upload.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[upload.AddOk](
 						failure.FromError(err),
 					), nil, nil
 				}

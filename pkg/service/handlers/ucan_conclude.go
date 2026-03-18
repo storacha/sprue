@@ -24,32 +24,23 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/principal/ed25519/verifier"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/go-ucanto/validator"
 	"go.uber.org/zap"
 
+	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/state"
 )
 
-// UCANConcludeService defines the interface for the ucan/conclude handler.
-type UCANConcludeService interface {
-	ID() principal.Signer
-	State() state.StateStore
-	PiriClient(ctx context.Context) (*piriclient.Client, error)
-	IndexerClient() *indexerclient.Client
-	Logger() *zap.Logger
-}
-
 // WithUCANConcludeMethod registers the ucan/conclude handler.
 // This handler processes receipt conclusions from clients.
 // When it receives an http/put receipt, it calls blob/accept on piri
 // and stores the accept receipt for later retrieval.
-func WithUCANConcludeMethod(s UCANConcludeService) server.Option {
+func WithUCANConcludeMethod(id *identity.Identity, stateStore state.StateStore, indexerClient *indexerclient.Client, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		ucancap.ConcludeAbility,
 		server.Provide(
@@ -59,7 +50,6 @@ func WithUCANConcludeMethod(s UCANConcludeService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[ucancap.ConcludeOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				logger := s.Logger()
 				receiptLink := cap.Nb().Receipt
 
 				logger.Debug("ucan/conclude received receipt", zap.String("receipt", receiptLink.String()))
@@ -113,7 +103,7 @@ func WithUCANConcludeMethod(s UCANConcludeService) server.Option {
 					zap.Uint64("size", body.Size))
 
 				// Find the allocation for this blob
-				alloc, err := s.State().GetAllocation(ctx, digestHex)
+				alloc, err := stateStore.GetAllocation(ctx, digestHex)
 				if err != nil {
 					logger.Error("error getting allocation", zap.Error(err))
 					return result.Ok[ucancap.ConcludeOk, failure.IPLDBuilderFailure](ucancap.ConcludeOk{}), nil, nil
@@ -124,7 +114,7 @@ func WithUCANConcludeMethod(s UCANConcludeService) server.Option {
 				}
 
 				// Get the piri client (queries provider table on each request)
-				piriClient, err := s.PiriClient(ctx)
+				piriClient, err := piriClient(ctx, id, stateStore, logger)
 				if err != nil {
 					logger.Error("failed to get piri client", zap.Error(err))
 					return result.Ok[ucancap.ConcludeOk, failure.IPLDBuilderFailure](ucancap.ConcludeOk{}), nil, nil
@@ -154,7 +144,7 @@ func WithUCANConcludeMethod(s UCANConcludeService) server.Option {
 				logger.Debug("piri accept succeeded", zap.Any("site", acceptResp.Site))
 
 				// Cache the location claim with the indexer
-				if indexerClient := s.IndexerClient(); indexerClient != nil && acceptResp.Site != nil {
+				if indexerClient != nil && acceptResp.Site != nil {
 					// Extract the location claim delegation from piri's receipt blocks
 					bs, bsErr := blockstore.NewBlockReader(blockstore.WithBlocksIterator(piriRcpt.Blocks()))
 					if bsErr != nil {
@@ -206,7 +196,7 @@ func WithUCANConcludeMethod(s UCANConcludeService) server.Option {
 					Site: acceptResp.Site,
 				}
 				reissuedRcpt, err := receipt.Issue(
-					s.ID(),
+					id.Signer,
 					result.Ok[blobcap.AcceptOk, failure.IPLDBuilderFailure](acceptOk),
 					ran.FromLink(alloc.AcceptInvLink),
 				)
@@ -230,7 +220,7 @@ func WithUCANConcludeMethod(s UCANConcludeService) server.Option {
 				acceptInvLink := alloc.AcceptInvLink.String()
 				logger.Debug("re-issued receipt for task", zap.String("task", acceptInvLink))
 
-				if err := s.State().PutReceipt(ctx, acceptInvLink, &state.StoredReceipt{
+				if err := stateStore.PutReceipt(ctx, acceptInvLink, &state.StoredReceipt{
 					Task:        alloc.AcceptInvLink,
 					Receipt:     reissuedRcpt,
 					ExtraBlocks: extraBlocks,

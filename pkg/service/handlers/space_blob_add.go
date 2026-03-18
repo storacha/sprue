@@ -21,23 +21,15 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
 	ed25519signer "github.com/storacha/go-ucanto/principal/ed25519/signer"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 
+	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/state"
 )
-
-// SpaceBlobAddService defines the interface for the space/blob/add handler.
-type SpaceBlobAddService interface {
-	ID() principal.Signer
-	State() state.StateStore
-	PiriClient(ctx context.Context) (*piriclient.Client, error)
-	Logger() *zap.Logger
-}
 
 // httpPutFact contains the fact data for the http/put invocation.
 type httpPutFact struct {
@@ -63,7 +55,7 @@ func (hpf httpPutFact) ToIPLD() (map[string]datamodel.Node, error) {
 
 // WithSpaceBlobAddMethod registers the space/blob/add handler.
 // This handler orchestrates blob storage - allocates on piri and returns upload URL.
-func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
+func WithSpaceBlobAddMethod(id *identity.Identity, stateStore state.StateStore, logger *zap.Logger) server.Option {
 	// Generate a blob provider identity for http/put
 	blobProvider, err := ed25519signer.Generate()
 	if err != nil {
@@ -79,11 +71,9 @@ func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
 				inv invocation.Invocation,
 				iCtx server.InvocationContext,
 			) (result.Result[spaceblobcap.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-
 				spaceDIDStr := cap.With()
 				blobInfo := cap.Nb().Blob
 				digestHex := hex.EncodeToString(blobInfo.Digest)
-				logger := s.Logger()
 
 				logger.Debug("space/blob/add",
 					zap.String("space", spaceDIDStr),
@@ -93,21 +83,21 @@ func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
 				// Parse the space DID
 				spaceDID, err := did.Parse(spaceDIDStr)
 				if err != nil {
-					return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[spaceblobcap.AddOk](
 						failure.FromError(fmt.Errorf("invalid space DID: %w", err)),
 					), nil, nil
 				}
 
 				// Get the piri client (queries provider table on each request)
-				piriClient, err := s.PiriClient(ctx)
+				piriClient, err := piriClient(ctx, id, stateStore, logger)
 				if err != nil {
 					logger.Error("failed to get piri client", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[spaceblobcap.AddOk](
 						failure.FromError(fmt.Errorf("failed to get piri client: %w", err)),
 					), nil, nil
 				}
 				if piriClient == nil {
-					return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[spaceblobcap.AddOk](
 						failure.FromError(fmt.Errorf("no storage provider available")),
 					), nil, nil
 				}
@@ -122,7 +112,7 @@ func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
 				})
 				if err != nil {
 					logger.Error("piri allocate failed", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[spaceblobcap.AddOk](
 						failure.FromError(fmt.Errorf("piri allocate failed: %w", err)),
 					), nil, nil
 				}
@@ -137,7 +127,7 @@ func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
 				if allocResp.Address != nil {
 					uploadURL = &allocResp.Address.URL
 				} else {
-					firstProvider, err := s.State().GetFirstProvider(ctx)
+					firstProvider, err := stateStore.GetFirstProvider(ctx)
 					if err != nil {
 						logger.Error("failed to get first provider", zap.Error(err))
 					} else if firstProvider != nil {
@@ -154,9 +144,9 @@ func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
 					PiriNode:  piriClient.PiriDID().String(),
 					UploadURL: uploadURL,
 				}
-				if err := s.State().PutAllocation(ctx, digestHex, alloc); err != nil {
+				if err := stateStore.PutAllocation(ctx, digestHex, alloc); err != nil {
 					logger.Error("failed to store allocation", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[spaceblobcap.AddOk](
 						failure.FromError(fmt.Errorf("storing allocation: %w", err)),
 					), nil, nil
 				}
@@ -227,9 +217,9 @@ func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
 				// Store the accept invocation link in the allocation so we can use it
 				// as the key when storing the receipt later
 				alloc.AcceptInvLink = acceptInv.Link()
-				if err := s.State().PutAllocation(ctx, digestHex, alloc); err != nil {
+				if err := stateStore.PutAllocation(ctx, digestHex, alloc); err != nil {
 					logger.Error("failed to update allocation", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+					return result.Error[spaceblobcap.AddOk](
 						failure.FromError(fmt.Errorf("updating allocation: %w", err)),
 					), nil, nil
 				}
@@ -278,4 +268,32 @@ func WithSpaceBlobAddMethod(s SpaceBlobAddService) server.Option {
 			},
 		),
 	)
+}
+
+// piriClient queries the provider table and creates a piri client on-demand.
+// This ensures we always use the most up-to-date provider information.
+func piriClient(ctx context.Context, identity *identity.Identity, stateStore state.StateStore, logger *zap.Logger) (*piriclient.Client, error) {
+	// Query provider from DynamoDB (delegator-provider-info table)
+	provider, err := stateStore.GetFirstProvider(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider from state: %w", err)
+	}
+
+	if provider == nil || provider.DID == (did.DID{}) || provider.Endpoint == nil {
+		logger.Debug("no storage provider registered")
+		return nil, nil
+	}
+
+	// Create a new piri client for this provider
+	client, err := piriclient.New(provider.Endpoint, provider.DID, identity.Signer, stateStore, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create piri client: %w", err)
+	}
+
+	logger.Debug("created piri client from provider info",
+		zap.String("did", provider.DID.String()),
+		zap.String("endpoint", provider.Endpoint.String()),
+	)
+
+	return client, nil
 }

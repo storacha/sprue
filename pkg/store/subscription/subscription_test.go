@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	"github.com/storacha/sprue/pkg/store/subscription"
 	subscriptionaws "github.com/storacha/sprue/pkg/store/subscription/aws"

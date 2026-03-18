@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/ucan"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
 	storageprovideraws "github.com/storacha/sprue/pkg/store/storage_provider/aws"

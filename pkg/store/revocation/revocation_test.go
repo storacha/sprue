@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store/revocation"
 	revocationaws "github.com/storacha/sprue/pkg/store/revocation/aws"
 	"github.com/storacha/sprue/pkg/store/revocation/memory"

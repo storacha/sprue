@@ -22,3 +22,7 @@ var (
 func RandomCID(t *testing.T) cid.Cid {
 	return cid.NewCidV1(cid.Raw, RandomMultihash(t))
 }
+
+func Must[T any](val T, err error) func(*testing.T) T {
+	return testutil.Must(val, err)
+}
