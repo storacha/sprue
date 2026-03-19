@@ -103,7 +103,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 }
 
-// BindEnvVars sets up environment variable binding with UPLOAD_ prefix.
+// BindEnvVars sets up environment variable binding with SPRUE_ prefix.
 func BindEnvVars(v *viper.Viper) {
 	v.SetEnvPrefix("SPRUE")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

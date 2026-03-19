@@ -36,8 +36,10 @@ provider "aws" {
 module "app" {
   source = "github.com/storacha/storoku//app?ref=v0.6.2"
   private_key = var.private_key
+  private_key_env_var = "SPRUE_IDENTITY_PRIVATE_KEY"
   principal_mapping = var.principal_mapping
   did = var.did
+  did_env_var = "SPRUE_IDENTITY_SERVICE_DID"
   app = var.app
   appState = var.app
   write_to_container = false

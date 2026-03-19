@@ -1,7 +1,7 @@
 {
   "app": "sprue",
-  "privateKeyEnvVar": "",
-  "didEnvVar": "",
+  "privateKeyEnvVar": "SPRUE_IDENTITY_PRIVATE_KEY",
+  "didEnvVar": "SPRUE_IDENTITY_SERVICE_DID",
   "port": 0,
   "js": null,
   "domainBase": "",
