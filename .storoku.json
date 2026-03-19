@@ -13,6 +13,10 @@
   "buckets": null,
   "secrets": null,
   "tables": null,
-  "networks": null,
+  "networks": [
+    "forge",
+    "warm",
+    "test"
+  ],
   "writeToContainer": false
 }
