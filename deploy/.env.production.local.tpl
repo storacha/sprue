@@ -1,0 +1,39 @@
+<%
+if [ "$TF_WORKSPACE" == "forge-prod" ]; then
+  DEPLOYMENT_PREFIX="forge-prod-upload-api"
+
+  AGENT_MESSAGE_BUCKET="forge-prod-upload-api-workflow-store-0"
+  DELEGATION_BUCKET="forge-prod-upload-api-delegation-0"
+  UPLOAD_SHARDS_BUCKET="forge-prod-upload-api-upload-shards-0"
+elif [ "$TF_WORKSPACE" == "forge-test" ]; then
+  DEPLOYMENT_PREFIX="forge-test-w3infra"
+
+  AGENT_MESSAGE_BUCKET="workflow-store-forge-test-0"
+  DELEGATION_BUCKET="delegation-forge-test-0"
+  UPLOAD_SHARDS_BUCKET="upload-shards-forge-test-0"
+else
+  DEPLOYMENT_PREFIX="staging-warm-upload-api"
+
+  AGENT_MESSAGE_BUCKET="staging-warm-upload-api-workflow-store-0"
+  DELEGATION_BUCKET="staging-warm-upload-api-delegation-0"
+  UPLOAD_SHARDS_BUCKET="staging-warm-upload-api-upload-shards-0"
+fi
+%>
+
+SPRUE_DYNAMODB_AGENT_INDEX_TABLE=<%= $DEPLOYMENT_PREFIX %>-agent-index
+SPRUE_DYNAMODB_BLOB_REGISTRY_TABLE=<%= $DEPLOYMENT_PREFIX %>-blob-registry
+SPRUE_DYNAMODB_CONSUMER_TABLE=<%= $DEPLOYMENT_PREFIX %>-consumer
+SPRUE_DYNAMODB_CUSTOMER_TABLE=<%= $DEPLOYMENT_PREFIX %>-customer
+SPRUE_DYNAMODB_DELEGATION_TABLE=<%= $DEPLOYMENT_PREFIX %>-delegation
+SPRUE_DYNAMODB_SPACE_METRICS_TABLE=<%= $DEPLOYMENT_PREFIX %>-space-metrics
+SPRUE_DYNAMODB_ADMIN_METRICS_TABLE=<%= $DEPLOYMENT_PREFIX %>-admin-metrics
+SPRUE_DYNAMODB_REPLICA_TABLE=<%= $DEPLOYMENT_PREFIX %>-replica
+SPRUE_DYNAMODB_REVOCATION_TABLE=<%= $DEPLOYMENT_PREFIX %>-revocation
+SPRUE_DYNAMODB_STORAGE_PROVIDER_TABLE=<%= $DEPLOYMENT_PREFIX %>-storage-provider
+SPRUE_DYNAMODB_SUBSCRIPTION_TABLE=<%= $DEPLOYMENT_PREFIX %>-subscription
+SPRUE_DYNAMODB_SPACE_DIFF_TABLE=<%= $DEPLOYMENT_PREFIX %>-space-diff
+SPRUE_DYNAMODB_UPLOAD_TABLE=<%= $DEPLOYMENT_PREFIX %>-upload
+
+SPRUE_S3_AGENT_MESSAGE_BUCKET=<%= AGENT_MESSAGE_BUCKET %>
+SPRUE_S3_DELEGATION_BUCKET=<%= DELEGATION_BUCKET %>
+SPRUE_S3_UPLOAD_SHARDS_BUCKET=<%= UPLOAD_SHARDS_BUCKET %>

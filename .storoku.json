@@ -1,0 +1,22 @@
+{
+  "app": "sprue",
+  "privateKeyEnvVar": "SPRUE_IDENTITY_PRIVATE_KEY",
+  "didEnvVar": "SPRUE_IDENTITY_SERVICE_DID",
+  "port": 0,
+  "js": null,
+  "domainBase": "",
+  "cloudflare": true,
+  "createDB": false,
+  "caches": null,
+  "topics": null,
+  "queues": null,
+  "buckets": null,
+  "secrets": null,
+  "tables": null,
+  "networks": [
+    "forge",
+    "warm",
+    "test"
+  ],
+  "writeToContainer": false
+}
