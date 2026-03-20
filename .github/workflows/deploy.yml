@@ -34,7 +34,7 @@ jobs:
       env: warm-staging
       workspace: warm-staging
       network: warm
-      did: did:web:staging.sprue.warm.storacha.network
+      did: did:web:staging.up.warm.storacha.network
       apply: ${{ github.event_name != 'pull_request' }}
     secrets:
       aws-account-id: ${{ secrets.WARM_STAGING_AWS_ACCOUNT_ID }}
@@ -51,7 +51,7 @@ jobs:
       env: forge-production
       workspace: forge-prod
       network: forge
-      did: did:web:sprue.forge.storacha.network
+      did: did:web:up.forge.storacha.network
       apply: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'forge-production') }}
     secrets:
       aws-account-id: ${{ secrets.FORGE_PROD_AWS_ACCOUNT_ID }}
@@ -67,7 +67,7 @@ jobs:
       env: forge-test
       workspace: forge-test
       network: test
-      did: did:web:sprue.test.storacha.network
+      did: did:web:up.test.storacha.network
       apply: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'forge-test') }}
     secrets:
       aws-account-id: ${{ secrets.FORGE_TEST_AWS_ACCOUNT_ID }}
