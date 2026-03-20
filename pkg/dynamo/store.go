@@ -52,8 +52,10 @@ var _ state.StateStore = (*Store)(nil)
 
 // New creates a new DynamoDB-backed state store.
 func New(ctx context.Context, cfg Config, logger *zap.Logger) (*Store, error) {
-	opts := []func(*awsconfig.LoadOptions) error{
-		awsconfig.WithRegion(cfg.Region),
+	opts := []func(*awsconfig.LoadOptions) error{}
+
+	if cfg.Region != "" {
+		opts = append(opts, awsconfig.WithRegion(cfg.Region))
 	}
 
 	if cfg.Endpoint != "" {
