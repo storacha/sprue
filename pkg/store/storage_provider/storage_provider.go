@@ -7,6 +7,7 @@ import (
 
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
@@ -17,7 +18,7 @@ const (
 )
 
 var (
-	ErrStorageProviderNotFound = store.NewError(StorageProviderNotFoundErrorName, "storage provider not found")
+	ErrStorageProviderNotFound = errors.New(StorageProviderNotFoundErrorName, "storage provider not found")
 )
 
 type (

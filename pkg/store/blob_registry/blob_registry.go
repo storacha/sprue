@@ -8,6 +8,7 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/storacha/go-capabilities/pkg/blob"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
@@ -18,9 +19,9 @@ const (
 
 var (
 	// ErrEntryNotFound indicates an entry was not found that matches the passed details.
-	ErrEntryNotFound = store.NewError(EntryNotFoundErrorName, "blob not found")
+	ErrEntryNotFound = errors.New(EntryNotFoundErrorName, "blob not found")
 	// ErrEntryExists indicates an entry already exists that matches the passed details.
-	ErrEntryExists = store.NewError(EntryExistsErrorName, "blob already exists")
+	ErrEntryExists = errors.New(EntryExistsErrorName, "blob already exists")
 )
 
 type (

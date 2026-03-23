@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
@@ -14,10 +15,10 @@ const (
 )
 
 // ErrCustomerNotFound indicates a customer does not exist.
-var ErrCustomerNotFound = store.NewError(CustomerNotFoundErrorName, "customer not found")
+var ErrCustomerNotFound = errors.New(CustomerNotFoundErrorName, "customer not found")
 
 // ErrCustomerExists indicates a customer already exists.
-var ErrCustomerExists = store.NewError(CustomerExistsErrorName, "customer already exists")
+var ErrCustomerExists = errors.New(CustomerExistsErrorName, "customer already exists")
 
 type (
 	ListConfig = store.PaginationConfig

@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,46 +11,54 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
+	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/car"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
+	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
+	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/server"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/ucan"
+	"github.com/storacha/go-ucanto/validator"
 	"go.uber.org/zap"
 
-	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
+	"github.com/storacha/sprue/pkg/lib/didmailto"
+	"github.com/storacha/sprue/pkg/lib/ucans"
+	"github.com/storacha/sprue/pkg/service/handlers"
+	"github.com/storacha/sprue/pkg/service/ui"
 	"github.com/storacha/sprue/pkg/state"
 	"github.com/storacha/sprue/pkg/store/agent"
+	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )
 
 // Service implements the sprue upload service logic.
 type Service struct {
-	cfg           *config.Config
-	identity      *identity.Identity
-	state         state.StateStore
-	agentStore    agent.Store
-	indexerClient *indexerclient.Client
-	logger        *zap.Logger
-	ucanServer    server.ServerView[server.Service]
-	options       []server.Option
+	identity        *identity.Identity
+	state           state.StateStore
+	agentStore      agent.Store
+	delegationStore delegation_store.Store
+	indexerClient   *indexerclient.Client
+	logger          *zap.Logger
+	ucanServer      server.ServerView[server.Service]
+	options         []server.Option
 }
 
 // New creates a new Service instance.
-func New(cfg *config.Config, id *identity.Identity, store state.StateStore, agentStore agent.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
+func New(id *identity.Identity, store state.StateStore, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
 	svc := &Service{
-		cfg:           cfg,
-		identity:      id,
-		state:         store,
-		agentStore:    agentStore,
-		indexerClient: indexerClient,
-		logger:        logger,
-		options:       options,
+		identity:        id,
+		state:           store,
+		agentStore:      agentStore,
+		delegationStore: delegationStore,
+		indexerClient:   indexerClient,
+		logger:          logger,
+		options:         options,
 	}
 
 	// Create UCAN server with handlers
@@ -149,6 +158,105 @@ func decodeAndIndex(r io.Reader) ([]byte, message.AgentMessage, []agent.IndexEnt
 		entries = append(entries, ent)
 	}
 	return body, msg, entries, nil
+}
+
+func (s *Service) HandleValidateEmailRequest(c echo.Context) error {
+	if c.QueryParam("ucan") == "" {
+		r, err := ui.ErrorPage("missing ucan query parameter")
+		if err != nil {
+			return fmt.Errorf("failed to render error page: %w", err)
+		}
+		return c.Stream(http.StatusBadRequest, "text/html", r)
+	}
+
+	switch c.Request().Method {
+	case http.MethodGet:
+		r, err := ui.PendingValidateEmailPage(true)
+		if err != nil {
+			return fmt.Errorf("failed to render validation page: %w", err)
+		}
+		return c.Stream(http.StatusOK, "text/html", r)
+	case http.MethodPost:
+		res, err := s.authorize(c.Request().Context(), c.QueryParam("ucan"))
+		if err != nil {
+			s.logger.Error("authorization error", zap.Error(err))
+			r, err := ui.ErrorPage(fmt.Sprintf("Oops, something went wrong: %s", err.Error()))
+			if err != nil {
+				return fmt.Errorf("failed to render error page: %w", err)
+			}
+			return c.Stream(http.StatusInternalServerError, "text/html", r)
+		}
+		r, err := ui.ValidateEmailPage(res.UCAN, res.Email, res.Audience)
+		if err != nil {
+			return fmt.Errorf("failed to render validation page: %w", err)
+		}
+		return c.Stream(http.StatusOK, "text/html", r)
+	default:
+		return c.String(http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+type authorizationResult struct {
+	Email    string
+	Audience string
+	UCAN     string
+	Facts    []ucan.Fact
+}
+
+func (s *Service) authorize(ctx context.Context, ucan string) (authorizationResult, error) {
+	dlgs, err := ucans.ParseDelegations(ucan)
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("parsing delegations: %w", err)
+	}
+	if len(dlgs) != 1 {
+		return authorizationResult{}, fmt.Errorf("unexpected number of delegations found in UCAN")
+	}
+	confirmation := dlgs[0]
+
+	confirm := server.Provide(
+		access.Confirm,
+		handlers.AccessConfirmHandler(s.identity, s.delegationStore, s.logger),
+	)
+	txn, err := confirm(ctx, confirmation, s.ucanServer.Context())
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("executing access/confirm handler: %w", err)
+	}
+	o, x := result.Unwrap(txn.Out())
+	if x != nil {
+		return authorizationResult{}, fmt.Errorf("access/confirm invocation failure: %w", x)
+	}
+
+	// Extract the email and audience from the confirmation invocation.
+	// This should match since we just successfully invoked the handler.
+	match, err := access.Confirm.Match(validator.NewSource(confirmation.Capabilities()[0], confirmation))
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("matching access/confirm capability: %w", err)
+	}
+	email, err := didmailto.Email(match.Value().Nb().Iss)
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("parsing account DID: %w", err)
+	}
+
+	var confirmDlgs []delegation.Delegation
+	for _, bytes := range o.Delegations.Values {
+		d, err := delegation.Extract(bytes)
+		if err != nil {
+			return authorizationResult{}, fmt.Errorf("extracting delegation from confirmation result: %w", err)
+		}
+		confirmDlgs = append(confirmDlgs, d)
+	}
+
+	ucan, err = ucans.FormatDelegations(confirmDlgs...)
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("formatting delegations: %w", err)
+	}
+
+	return authorizationResult{
+		Email:    email,
+		Audience: match.Value().Nb().Aud.String(),
+		UCAN:     ucan,
+		Facts:    confirmation.Facts(),
+	}, nil
 }
 
 // HandleReceiptRequest handles receipt retrieval requests.

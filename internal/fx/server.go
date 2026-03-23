@@ -41,6 +41,8 @@ func NewEchoServer(
 	e.GET("/health", healthHandler)
 	e.GET("/.well-known/did.json", didDocumentHandler(id))
 	e.POST("/", svc.HandleUCANRequest)
+	e.GET("/validate-email", svc.HandleValidateEmailRequest)
+	e.POST("/validate-email", svc.HandleValidateEmailRequest)
 	e.GET("/receipt/:cid", svc.HandleReceiptRequest)
 
 	return e

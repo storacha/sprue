@@ -6,6 +6,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
@@ -19,8 +20,8 @@ const (
 )
 
 var (
-	ErrSubscriptionExists   = store.NewError(SubscriptionExistsErrorName, "subscription already exists")
-	ErrSubscriptionNotFound = store.NewError(SubscriptionNotFoundErrorName, "subscription not found")
+	ErrSubscriptionExists   = errors.New(SubscriptionExistsErrorName, "subscription already exists")
+	ErrSubscriptionNotFound = errors.New(SubscriptionNotFoundErrorName, "subscription not found")
 )
 
 type (

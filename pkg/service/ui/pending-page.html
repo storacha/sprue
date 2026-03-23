@@ -1,0 +1,21 @@
+{{define "body"}}
+<header>{{.Logo}}</header>
+<main>
+  <div class="box">
+    <h1>Validating Email</h1>
+    <form id="approval" method="post">
+      <button>Approve</button>
+    </form>
+    {{if .AutoApprove}}
+    <script>
+      (() => {
+        // auto-submit the form for any user w/JS enabled
+        const form = document.getElementById('approval')
+        form.style.display = 'none'
+        form.submit()
+      })()
+    </script>
+    {{end}}
+  </div>
+</main>
+{{end}}
