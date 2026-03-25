@@ -53,6 +53,7 @@ func WithAccessAuthorizeMethod(serverCfg config.ServerConfig, id *identity.Ident
 }
 
 func AccessAuthorizeHandler(serverCfg config.ServerConfig, id *identity.Identity, mailer mailer.Mailer, logger *zap.Logger) server.HandlerFunc[access.AuthorizeCaveats, access.AuthorizeOk, failure.IPLDBuilderFailure] {
+	log := logger.With(zap.String("handler", access.AuthorizeAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[access.AuthorizeCaveats],
 		inv invocation.Invocation,
@@ -60,10 +61,12 @@ func AccessAuthorizeHandler(serverCfg config.ServerConfig, id *identity.Identity
 	) (result.Result[access.AuthorizeOk, failure.IPLDBuilderFailure], fx.Effects, error) {
 		// Get the account DID from the caveats
 		if cap.Nb().Iss == nil {
+			log.Warn("missing account")
 			return result.Error[access.AuthorizeOk, failure.IPLDBuilderFailure](ErrMissingAuthorizationAccount), nil, nil
 		}
 		account, err := didmailto.Parse(*cap.Nb().Iss)
 		if err != nil {
+			log.Warn("invalid account", zap.String("account", *cap.Nb().Iss))
 			return result.Error[access.AuthorizeOk, failure.IPLDBuilderFailure](
 				errors.New(InvalidAuthorizationAccountErrorName, "invalid authorization account DID: %v", err),
 			), nil, nil
@@ -72,19 +75,19 @@ func AccessAuthorizeHandler(serverCfg config.ServerConfig, id *identity.Identity
 		// parsed it as a did:mailto:
 		email, err := didmailto.Email(account)
 		if err != nil {
-			logger.Error("extracting email from mailto DID", zap.Error(err))
 			return nil, nil, fmt.Errorf("extracting email from mailto DID: %w", err)
 		}
 		audience, err := did.Parse(cap.With())
 		if err != nil {
+			log.Warn("invalid audience", zap.String("audience", cap.With()))
 			return result.Error[access.AuthorizeOk, failure.IPLDBuilderFailure](
 				errors.New(InvalidAuthorizationAudienceErrorName, "invalid authorization audience DID: %v", err),
 			), nil, nil
 		}
 
-		agent := inv.Issuer().DID().String()
-		logger.Debug("access/authorize",
-			zap.String("agent", agent),
+		agent := inv.Issuer().DID()
+		log.Debug("authorizing access",
+			zap.String("agent", agent.String()),
 			zap.String("account", account.String()),
 			zap.String("audience", audience.String()))
 
@@ -130,7 +133,7 @@ func AccessAuthorizeHandler(serverCfg config.ServerConfig, id *identity.Identity
 
 		confirmationStr, err := ucans.FormatDelegations(confirmation)
 		if err != nil {
-			logger.Error("failed to format confirmation", zap.Error(err))
+			log.Error("failed to format confirmation", zap.Error(err))
 			return nil, nil, fmt.Errorf("formatting confirmation: %w", err)
 		}
 
@@ -140,13 +143,13 @@ func AccessAuthorizeHandler(serverCfg config.ServerConfig, id *identity.Identity
 		}
 		validationURL, err := url.Parse(fmt.Sprintf("%s/validate-email?ucan=%s&mode=authorize", pubUrlStr, confirmationStr))
 		if err != nil {
-			logger.Error("failed to parse validation URL", zap.Error(err))
+			log.Error("failed to parse validation URL", zap.Error(err))
 			return nil, nil, fmt.Errorf("parsing validation URL: %w", err)
 		}
 
 		err = mailer.SendValidation(ctx, email, *validationURL)
 		if err != nil {
-			logger.Error("failed to send validation email", zap.Error(err))
+			log.Error("failed to send validation email", zap.Error(err))
 			return nil, nil, fmt.Errorf("sending validation email: %w", err)
 		}
 

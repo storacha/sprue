@@ -19,7 +19,6 @@ import (
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
 	"github.com/storacha/go-ucanto/core/result"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/server"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/ucan"
@@ -73,18 +72,16 @@ func New(id *identity.Identity, store state.StateStore, agentStore agent.Store, 
 
 // createUCANServer creates the UCAN RPC server with registered handlers.
 func (s *Service) createUCANServer() (server.ServerView[server.Service], error) {
-	// For local development, allow any principal to invoke any capability.
-	// This bypasses strict authorization checks that require proper delegation chains.
-	permissiveCanIssue := func(cap ucan.Capability[any], issuer did.DID) bool {
-		s.logger.Debug("permissive auth check",
-			zap.String("capability", cap.Can()),
-			zap.String("resource", cap.With()),
-			zap.String("issuer", issuer.String()),
-		)
-		return true // Allow all invocations
-	}
-
-	options := append(slices.Clone(s.options), server.WithCanIssue(permissiveCanIssue))
+	log := s.logger
+	options := append(
+		slices.Clone(s.options),
+		server.WithErrorHandler(func(err server.HandlerExecutionError[any]) {
+			if stack := err.Stack(); stack != "" {
+				log = log.With(zap.String("stack", stack))
+			}
+			log.Error("handler execution", zap.Error(err))
+		}),
+	)
 	return server.NewServer(s.identity.Signer, options...)
 }
 

@@ -26,9 +26,7 @@ import (
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )
 
-const (
-	InvalidAccessConfirmDelegationErrorName = "InvalidAccessConfirmDelegation"
-)
+const InvalidAccessConfirmDelegationErrorName = "InvalidAccessConfirmDelegation"
 
 // WithAccessConfirmMethod registers the access/confirm handler.
 func WithAccessConfirmMethod(id *identity.Identity, delegationStore delegation_store.Store, logger *zap.Logger) server.Option {
@@ -42,12 +40,14 @@ func WithAccessConfirmMethod(id *identity.Identity, delegationStore delegation_s
 }
 
 func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_store.Store, logger *zap.Logger) server.HandlerFunc[access.ConfirmCaveats, access.ConfirmOk, failure.IPLDBuilderFailure] {
+	log := logger.With(zap.String("handler", access.ConfirmAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[access.ConfirmCaveats],
 		inv invocation.Invocation,
 		iCtx server.InvocationContext,
 	) (result.Result[access.ConfirmOk, failure.IPLDBuilderFailure], fx.Effects, error) {
 		if cap.With() != id.DID() {
+			log.Warn("not a valid delegation", zap.String("resource", cap.With()))
 			return result.Error[access.ConfirmOk, failure.IPLDBuilderFailure](
 				errors.New(InvalidAccessConfirmDelegationErrorName, "not a valid access/confirm delegation"),
 			), nil, nil
@@ -57,10 +57,21 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 		account := absentee.From(cap.Nb().Iss)
 		agent, err := verifier.Parse(cap.Nb().Aud.String())
 		if err != nil {
+			log.Warn("invalid audience", zap.String("audience", cap.Nb().Aud.String()))
 			return result.Error[access.ConfirmOk, failure.IPLDBuilderFailure](
 				errors.New(InvalidAccessConfirmDelegationErrorName, "invalid agent DID in delegation"),
 			), nil, nil
 		}
+
+		abilities := []ucan.Ability{}
+		for _, att := range cap.Nb().Att {
+			abilities = append(abilities, att.Can)
+		}
+
+		log.Debug("confirming access",
+			zap.String("agent", agent.DID().String()),
+			zap.String("account", account.DID().String()),
+			zap.Strings("abilities", abilities))
 
 		// In the future we should instead render a page and allow a user to select
 		// which delegations they wish to re-delegate. Right now we just re-delegate
@@ -73,7 +84,7 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 		// Create session proofs, but containing no Space proofs. We'll store these,
 		// and generate the Space proofs on access/claim.
 		dlg, attestation, err := createSessionProofs(
-			id,
+			id.Signer,
 			account,
 			agent,
 			[]ucan.FactBuilder{
@@ -86,7 +97,6 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 			[]delegation.Delegation{},
 		)
 		if err != nil {
-			logger.Error("creating session proofs", zap.Error(err))
 			return nil, nil, fmt.Errorf("creating session proofs: %w", err)
 		}
 
@@ -99,7 +109,7 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 		// the delegations storage system directly.
 		err = delegationStore.PutMany(ctx, dlgs, cid.Undef)
 		if err != nil {
-			logger.Error("storing delegations", zap.Error(err))
+			log.Error("failed to store delegations", zap.Error(err))
 			return nil, nil, fmt.Errorf("storing delegations: %w", err)
 		}
 
@@ -108,6 +118,7 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 			k := d.Link().String()
 			v, err := ucans.ArchiveDelegations(d)
 			if err != nil {
+				log.Error("failed to archive delegation", zap.Error(err))
 				return nil, nil, fmt.Errorf("archiving delegation: %w", err)
 			}
 			mdl.Keys = append(mdl.Keys, k)
@@ -126,31 +137,20 @@ type accessConfirmFact struct {
 }
 
 func (f accessConfirmFact) ToIPLD() (map[string]ipld.Node, error) {
-	nb := basicnode.Prototype.Link.NewBuilder()
-	err := nb.AssignLink(f.accessRequest)
-	if err != nil {
-		return nil, err
-	}
-	accessRequest := nb.Build()
-
-	err = nb.AssignLink(f.accessConfirm)
-	if err != nil {
-		return nil, err
-	}
-	accessConfirm := nb.Build()
-
 	return map[string]ipld.Node{
-		"access/request": accessRequest,
-		"access/confirm": accessConfirm,
+		"access/request": basicnode.NewLink(f.accessRequest),
+		"access/confirm": basicnode.NewLink(f.accessConfirm),
 	}, nil
 }
 
-func createSessionProofs(
-	id *identity.Identity,
+// createSessionProofs creates a delegation from the account to the agent, and
+// an attestation from the service to the agent referencing that delegation.
+func createSessionProofs[C ucan.CaveatBuilder](
+	service ucan.Signer,
 	account ucan.Signer,
 	agent ucan.Principal,
 	facts []ucan.FactBuilder,
-	capabilities []ucan.Capability[ucan.NoCaveats],
+	capabilities []ucan.Capability[C],
 	delegationProofs []delegation.Delegation,
 ) (delegation.Delegation, delegation.Delegation, error) {
 	var proofs []delegation.Proof
@@ -174,9 +174,9 @@ func createSessionProofs(
 	}
 
 	attestation, err := ucan_caps.Attest.Delegate(
-		id.Signer,
+		service,
 		agent,
-		id.DID(),
+		service.DID().String(),
 		ucan_caps.AttestCaveats{
 			Proof: dlg.Link(),
 		},
