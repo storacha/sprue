@@ -10,7 +10,6 @@ import (
 	"github.com/storacha/sprue/pkg/provisioning"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	consumermemory "github.com/storacha/sprue/pkg/store/consumer/memory"
-	customermemory "github.com/storacha/sprue/pkg/store/customer/memory"
 	"github.com/storacha/sprue/pkg/store/subscription"
 	subscriptionmemory "github.com/storacha/sprue/pkg/store/subscription/memory"
 	"github.com/stretchr/testify/require"
@@ -25,7 +24,6 @@ func mustMailtoDID(t *testing.T, email string) did.DID {
 
 type testSetup struct {
 	service           *provisioning.Service
-	customerStore     *customermemory.Store
 	consumerStore     *consumermemory.Store
 	subscriptionStore *subscriptionmemory.Store
 	provider          did.DID
