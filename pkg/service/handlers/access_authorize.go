@@ -86,10 +86,12 @@ func AccessAuthorizeHandler(serverCfg config.ServerConfig, id *identity.Identity
 		}
 
 		agent := inv.Issuer().DID()
-		log.Debug("authorizing access",
-			zap.String("agent", agent.String()),
-			zap.String("account", account.String()),
-			zap.String("audience", audience.String()))
+		log := log.With(
+			zap.Stringer("agent", agent),
+			zap.Stringer("account", account),
+			zap.Stringer("audience", audience),
+		)
+		log.Debug("authorizing access")
 
 		exp := int(time.Now().Add(confirmationTTL).Unix())
 

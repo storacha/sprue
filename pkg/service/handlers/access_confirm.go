@@ -57,7 +57,7 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 		account := absentee.From(cap.Nb().Iss)
 		agent, err := verifier.Parse(cap.Nb().Aud.String())
 		if err != nil {
-			log.Warn("invalid audience", zap.String("audience", cap.Nb().Aud.String()))
+			log.Warn("invalid audience", zap.Stringer("audience", cap.Nb().Aud))
 			return result.Error[access.ConfirmOk, failure.IPLDBuilderFailure](
 				errors.New(InvalidAccessConfirmDelegationErrorName, "invalid agent DID in delegation"),
 			), nil, nil
@@ -68,10 +68,11 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 			abilities = append(abilities, att.Can)
 		}
 
-		log.Debug("confirming access",
-			zap.String("agent", agent.DID().String()),
-			zap.String("account", account.DID().String()),
-			zap.Strings("abilities", abilities))
+		log := log.With(
+			zap.Stringer("agent", agent.DID()),
+			zap.Stringer("account", account.DID()),
+		)
+		log.Debug("confirming access", zap.Strings("abilities", abilities))
 
 		// In the future we should instead render a page and allow a user to select
 		// which delegations they wish to re-delegate. Right now we just re-delegate
@@ -113,7 +114,7 @@ func AccessConfirmHandler(id *identity.Identity, delegationStore delegation_stor
 			return nil, nil, fmt.Errorf("storing delegations: %w", err)
 		}
 
-		mdl := access.DelegationsModel{}
+		mdl := access.DelegationsModel{Values: map[string][]byte{}}
 		for _, d := range dlgs {
 			k := d.Link().String()
 			v, err := ucans.ArchiveDelegations(d)

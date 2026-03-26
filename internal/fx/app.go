@@ -13,7 +13,7 @@ var AppModule = fx.Options(
 	LoggerModule,
 	IdentityModule,
 	StoreModule,
-	MailerModule,
+	ServicesModule,
 	aws.Module,
 	ClientsModule,
 	service.Module,

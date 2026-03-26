@@ -27,13 +27,9 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	InvalidClaimAudienceErrorName = "InvalidClaimAudience"
-)
+const InvalidClaimAudienceErrorName = "InvalidClaimAudience"
 
-var (
-	ErrInvalidClaimAudience = errors.New(InvalidClaimAudienceErrorName, "invalid claim audience DID")
-)
+var ErrInvalidClaimAudience = errors.New(InvalidClaimAudienceErrorName, "invalid claim audience DID")
 
 // WithAccessClaimMethod registers the access/claim handler.
 func WithAccessClaimMethod(id *identity.Identity, delegationStore delegation_store.Store, logger *zap.Logger) server.Option {
@@ -60,9 +56,11 @@ func AccessClaimHandler(id *identity.Identity, delegationStore delegation_store.
 			return result.Error[access.ClaimOk, failure.IPLDBuilderFailure](ErrInvalidClaimAudience), nil, nil
 		}
 
-		log.Debug("claiming delegations",
-			zap.String("agent", agent.String()),
-			zap.String("audience", audience.String()))
+		log := log.With(
+			zap.Stringer("agent", agent),
+			zap.Stringer("audience", audience),
+		)
+		log.Debug("claiming delegations")
 
 		dlgs := map[cid.Cid]delegation.Delegation{}
 		var cursor *string
@@ -156,7 +154,7 @@ func AccessClaimHandler(id *identity.Identity, delegationStore delegation_store.
 			}
 		}
 
-		mdl := access.DelegationsModel{}
+		mdl := access.DelegationsModel{Values: map[string][]byte{}}
 		for _, d := range dlgs {
 			k := d.Link().String()
 			v, err := ucans.ArchiveDelegations(d)
