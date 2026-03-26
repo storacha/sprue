@@ -36,7 +36,7 @@ func TestWireApp(t *testing.T) {
 			Port: 0,
 		},
 		Identity: config.IdentityConfig{
-			PrivateKey: testutil.Must(ed25519.Format(testutil.Alice))(t),
+			PrivateKey: testutil.Must(ed25519.Format(testutil.WebService))(t),
 			ServiceDID: testutil.WebService.DID().String(),
 		},
 		Indexer: config.IndexerConfig{
@@ -72,6 +72,9 @@ func TestWireApp(t *testing.T) {
 			AgentMessageBucket: "agent-message-" + appID,
 			DelegationBucket:   "delegation-" + appID,
 			UploadShardsBucket: "upload-shards-" + appID,
+		},
+		Mailer: config.MailerConfig{
+			Type: "nop",
 		},
 		Log: config.LogConfig{
 			Level: "debug",

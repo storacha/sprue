@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
@@ -14,10 +15,10 @@ const (
 )
 
 // ErrCustomerNotFound indicates a customer does not exist.
-var ErrCustomerNotFound = store.NewError(CustomerNotFoundErrorName, "customer not found")
+var ErrCustomerNotFound = errors.New(CustomerNotFoundErrorName, "customer not found")
 
 // ErrCustomerExists indicates a customer already exists.
-var ErrCustomerExists = store.NewError(CustomerExistsErrorName, "customer already exists")
+var ErrCustomerExists = errors.New(CustomerExistsErrorName, "customer already exists")
 
 type (
 	ListConfig = store.PaginationConfig
@@ -39,7 +40,7 @@ type CustomerRecord struct {
 	Customer did.DID
 	// Opaque identifier representing an account in the payment system
 	// e.g. Stripe customer ID (stripe:cus_9s6XKzkNRiz8i3)
-	Account *did.DID
+	Account *string
 	// Unique identifier of the product a.k.a plan.
 	Product did.DID
 	// Misc customer details
@@ -57,7 +58,7 @@ type Store interface {
 	// May return [ErrCustomerNotFound] if the customer does not exist.
 	Get(ctx context.Context, customer did.DID) (CustomerRecord, error)
 	// May return [ErrCustomerExists] if the customer already exists.
-	Add(ctx context.Context, customer did.DID, account *did.DID, product did.DID, details map[string]any, reservedCapacity *uint64) error
+	Add(ctx context.Context, customer did.DID, account *string, product did.DID, details map[string]any, reservedCapacity *uint64) error
 	List(ctx context.Context, options ...ListOption) (store.Page[CustomerRecord], error)
 	// Update the product (plan) for a customer. May return [ErrCustomerNotFound]
 	// if the customer does not exist.

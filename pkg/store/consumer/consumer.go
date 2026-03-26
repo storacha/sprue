@@ -5,6 +5,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
@@ -15,9 +16,9 @@ const (
 
 var (
 	// ErrConsumerNotFound indicates a consumer was not found that matches the passed details.
-	ErrConsumerNotFound = store.NewError(ConsumerNotFoundErrorName, "consumer not found")
+	ErrConsumerNotFound = errors.New(ConsumerNotFoundErrorName, "consumer not found")
 	// ErrConsumerExists indicates a consumer already exists that matches the passed details.
-	ErrConsumerExists = store.NewError(ConsumerExistsErrorName, "consumer already exists")
+	ErrConsumerExists = errors.New(ConsumerExistsErrorName, "consumer already exists")
 )
 
 type (

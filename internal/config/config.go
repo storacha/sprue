@@ -9,18 +9,32 @@ import (
 
 // Config holds the sprue service configuration.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Identity IdentityConfig `mapstructure:"identity"`
-	Indexer  IndexerConfig  `mapstructure:"indexer"`
-	DynamoDB DynamoDBConfig `mapstructure:"dynamodb"`
-	S3       S3Config       `mapstructure:"s3"`
-	Log      LogConfig      `mapstructure:"log"`
+	Deployment DeploymentConfig `mapstructure:"deployment"`
+	Server     ServerConfig     `mapstructure:"server"`
+	Identity   IdentityConfig   `mapstructure:"identity"`
+	Indexer    IndexerConfig    `mapstructure:"indexer"`
+	DynamoDB   DynamoDBConfig   `mapstructure:"dynamodb"`
+	S3         S3Config         `mapstructure:"s3"`
+	Log        LogConfig        `mapstructure:"log"`
+	Mailer     MailerConfig     `mapstructure:"mailer"`
+}
+
+type DeploymentConfig struct {
+	// Environment is the deployment environment name (e.g., staging, production).
+	Environment string `mapstructure:"environment"`
+	// AllowProvisionWithoutPaymentPlan indicates whether the service allows users
+	// to provision a space without an active payment plan. It should only be true
+	// in development or testing environments.
+	AllowProvisionWithoutPaymentPlan bool `mapstructure:"allow_provision_without_payment_plan"`
 }
 
 // ServerConfig holds HTTP server settings.
 type ServerConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
+	// PublicURL is the public URL for the service, used in email links and UCANs.
+	// If not set, it will be derived from Host and Port.
+	PublicURL string `mapstructure:"public_url"`
 }
 
 // IdentityConfig holds service identity settings.
@@ -106,6 +120,15 @@ type S3Config struct {
 type LogConfig struct {
 	// Level controls logging verbosity (debug, info, warn, error).
 	Level string `mapstructure:"level"`
+}
+
+type MailerConfig struct {
+	// Type specifies the mailer implementation to use (e.g., "postmark", "nop").
+	Type string `mapstructure:"type"`
+	// Email address to use as the default sender for outgoing emails.
+	Sender string `mapstructure:"sender"`
+	// Postmark settings
+	PostmarkToken string `mapstructure:"postmark_token"`
 }
 
 // SetDefaults configures default values for viper.

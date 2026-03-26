@@ -1,4 +1,4 @@
-package store
+package errors
 
 import (
 	// for schema embed

@@ -1,8 +1,10 @@
-package store
+package errors
 
 import (
+	"fmt"
+
 	"github.com/ipld/go-ipld-prime/datamodel"
-	"github.com/storacha/go-capabilities/pkg/types"
+	"github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-ucanto/core/ipld"
 )
 
@@ -11,8 +13,11 @@ type ErrorModel struct {
 	Message   string
 }
 
-// NewError creates an error that has a name as well as a message.
-func NewError(name, message string) ErrorModel {
+// New creates an IPLD error that has a name as well as a message.
+func New(name, message string, args ...any) ErrorModel {
+	if len(args) > 0 {
+		message = fmt.Sprintf(message, args...)
+	}
 	return ErrorModel{
 		ErrorName: name,
 		Message:   message,

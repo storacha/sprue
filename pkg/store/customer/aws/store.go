@@ -101,7 +101,7 @@ func (s *Store) Get(ctx context.Context, customerID did.DID) (customer.CustomerR
 	return itemToRecord(out.Item)
 }
 
-func (s *Store) Add(ctx context.Context, customerID did.DID, account *did.DID, product did.DID, details map[string]any, reservedCapacity *uint64) error {
+func (s *Store) Add(ctx context.Context, customerID did.DID, account *string, product did.DID, details map[string]any, reservedCapacity *uint64) error {
 	now := time.Now().UTC().Format(timeutil.SimplifiedISO8601)
 	item := map[string]types.AttributeValue{
 		"customer":   &types.AttributeValueMemberS{Value: customerID.String()},
@@ -109,7 +109,7 @@ func (s *Store) Add(ctx context.Context, customerID did.DID, account *did.DID, p
 		"insertedAt": &types.AttributeValueMemberS{Value: now},
 	}
 	if account != nil {
-		item["account"] = &types.AttributeValueMemberS{Value: account.String()}
+		item["account"] = &types.AttributeValueMemberS{Value: *account}
 	}
 	if reservedCapacity != nil {
 		item["reservedCapacity"] = &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", *reservedCapacity)}
@@ -236,11 +236,7 @@ func itemToRecord(item map[string]types.AttributeValue) (customer.CustomerRecord
 	}
 
 	if accountAttr, ok := item["account"].(*types.AttributeValueMemberS); ok {
-		account, err := did.Parse(accountAttr.Value)
-		if err != nil {
-			return customer.CustomerRecord{}, fmt.Errorf("parsing account DID: %w", err)
-		}
-		rec.Account = &account
+		rec.Account = &accountAttr.Value
 	}
 
 	if capAttr, ok := item["reservedCapacity"].(*types.AttributeValueMemberN); ok {
