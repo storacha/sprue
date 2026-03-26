@@ -132,6 +132,10 @@ func AccessAuthorizeHandler(serverCfg config.ServerConfig, id *identity.Identity
 			// completing the Stripe plan selection flow
 			delegation.WithFacts(toFactBuilders(inv.Facts())),
 		)
+		if err != nil {
+			log.Error("failed to create confirmation delegation", zap.Error(err))
+			return nil, nil, fmt.Errorf("creating confirmation delegation: %w", err)
+		}
 
 		confirmationStr, err := ucans.FormatDelegations(confirmation)
 		if err != nil {

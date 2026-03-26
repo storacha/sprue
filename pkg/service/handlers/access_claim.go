@@ -191,6 +191,9 @@ func createSessionProofsForLogin(
 		}
 		return delegationStore.ListByAudience(ctx, account, opts...)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("collecting delegations for account: %w", err)
+	}
 
 	caps := make([]ucan.Capability[ucan.NoCaveats], len(loginDlg.Capabilities()))
 	for _, cap := range loginDlg.Capabilities() {
