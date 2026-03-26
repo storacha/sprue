@@ -22,6 +22,10 @@ type Config struct {
 type DeploymentConfig struct {
 	// Environment is the deployment environment name (e.g., staging, production).
 	Environment string `mapstructure:"environment"`
+	// AllowProvisionWithoutPaymentPlan indicates whether the service allows users
+	// to provision a space without an active payment plan. It should only be true
+	// in development or testing environments.
+	AllowProvisionWithoutPaymentPlan bool `mapstructure:"allow_provision_without_payment_plan"`
 }
 
 // ServerConfig holds HTTP server settings.

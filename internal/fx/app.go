@@ -10,6 +10,7 @@ import (
 // AppModule aggregates all application modules. It requires [config.Config] to
 // be provided by the caller, typically via [ConfigModule].
 var AppModule = fx.Options(
+	fx.Provide(ProvideConfigs),
 	LoggerModule,
 	IdentityModule,
 	StoreModule,

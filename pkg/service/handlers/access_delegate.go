@@ -18,7 +18,7 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
 	"github.com/storacha/sprue/pkg/lib/errors"
-	"github.com/storacha/sprue/pkg/provisioner"
+	"github.com/storacha/sprue/pkg/provisioning"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )
 
@@ -29,17 +29,17 @@ const (
 
 // WithAccessDelegateMethod registers the access/delegate handler.
 // This handler stores delegations for later retrieval.
-func WithAccessDelegateMethod(delegationStore delegation_store.Store, provisionService *provisioner.ProvisioningService, logger *zap.Logger) server.Option {
+func WithAccessDelegateMethod(delegationStore delegation_store.Store, provisioningSvc *provisioning.Service, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.DelegateAbility,
 		server.Provide(
 			access.Delegate,
-			AccessDelegateHandler(delegationStore, provisionService, logger),
+			AccessDelegateHandler(delegationStore, provisioningSvc, logger),
 		),
 	)
 }
 
-func AccessDelegateHandler(delegationStore delegation_store.Store, provisionService *provisioner.ProvisioningService, logger *zap.Logger) server.HandlerFunc[access.DelegateCaveats, access.DelegateOk, failure.IPLDBuilderFailure] {
+func AccessDelegateHandler(delegationStore delegation_store.Store, provisioningSvc *provisioning.Service, logger *zap.Logger) server.HandlerFunc[access.DelegateCaveats, access.DelegateOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", access.DelegateAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[access.DelegateCaveats],
@@ -60,7 +60,7 @@ func AccessDelegateHandler(delegationStore delegation_store.Store, provisionServ
 		)
 		log.Debug("delegating access", zap.Stringer("agent", agent))
 
-		providers, err := provisionService.ListServiceProviders(ctx, space)
+		providers, err := provisioningSvc.ListServiceProviders(ctx, space)
 		if err != nil {
 			log.Error("failed to list service providers", zap.Error(err))
 			return nil, nil, fmt.Errorf("listing service providers: %w", err)

@@ -1,4 +1,4 @@
-package provisioner
+package provisioning
 
 import (
 	"bytes"
@@ -14,7 +14,6 @@ import (
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store/consumer"
-	"github.com/storacha/sprue/pkg/store/customer"
 	"github.com/storacha/sprue/pkg/store/subscription"
 )
 
@@ -30,17 +29,15 @@ const ProviderNotAllowedErrorName = "ProviderNotAllowed"
 // ErrProviderNotAllowed is returned when a provider is not in the allowed list.
 var ErrProviderNotAllowed = errors.New(ProviderNotAllowedErrorName, "provider not allowed")
 
-type ProvisioningService struct {
+type Service struct {
 	providers         []ServiceDID
-	customerStore     customer.Store
 	consumerStore     consumer.Store
 	subscriptionStore subscription.Store
 }
 
-func New(providers []ServiceDID, customerStore customer.Store, consumerStore consumer.Store, subscriptionStore subscription.Store) *ProvisioningService {
-	return &ProvisioningService{
+func NewService(providers []ServiceDID, consumerStore consumer.Store, subscriptionStore subscription.Store) *Service {
+	return &Service{
 		providers:         providers,
-		customerStore:     customerStore,
 		consumerStore:     consumerStore,
 		subscriptionStore: subscriptionStore,
 	}
@@ -48,25 +45,19 @@ func New(providers []ServiceDID, customerStore customer.Store, consumerStore con
 
 // GetConsumer returns the consumer record for a given service provider and
 // consumer (space). It may return [consumer.ErrConsumerNotFound].
-func (s *ProvisioningService) GetConsumer(ctx context.Context, provider ServiceDID, space SpaceDID) (consumer.ConsumerRecord, error) {
+func (s *Service) GetConsumer(ctx context.Context, provider ServiceDID, space SpaceDID) (consumer.ConsumerRecord, error) {
 	return s.consumerStore.Get(ctx, provider, space)
-}
-
-// GetCustomer returns the customer (account) that owns the consumer (space)
-// for a given service provider. It may return [customer.ErrCustomerNotFound].
-func (s *ProvisioningService) GetCustomer(ctx context.Context, provider ServiceDID, account AccountDID) (customer.CustomerRecord, error) {
-	return s.customerStore.Get(ctx, account)
 }
 
 // GetSubscription returns the subscription record for a given service
 // provider. It may return [subscription.ErrSubscriptionNotFound].
-func (s *ProvisioningService) GetSubscription(ctx context.Context, provider ServiceDID, subscription SubscriptionID) (subscription.SubscriptionRecord, error) {
+func (s *Service) GetSubscription(ctx context.Context, provider ServiceDID, subscription SubscriptionID) (subscription.SubscriptionRecord, error) {
 	return s.subscriptionStore.Get(ctx, provider, subscription)
 }
 
 // ListServiceProviders returns a list of services that have been provisioned
 // for the given consumer (space).
-func (s *ProvisioningService) ListServiceProviders(ctx context.Context, space SpaceDID) ([]ServiceDID, error) {
+func (s *Service) ListServiceProviders(ctx context.Context, space SpaceDID) ([]ServiceDID, error) {
 	var providers []ServiceDID
 	page, err := s.consumerStore.List(ctx, space)
 	if err != nil {
@@ -91,32 +82,30 @@ func (s *ProvisioningService) ListServiceProviders(ctx context.Context, space Sp
 // a customer (account). It may return [customer.ErrCustomerNotFound]
 // if the customer does not exist and [consumer.ErrConsumerExists] if the
 // consumer is already provisioned for the provider.
-func (s *ProvisioningService) Provision(ctx context.Context, account AccountDID, space SpaceDID, provider ServiceDID, cause cid.Cid) error {
+func (s *Service) Provision(ctx context.Context, customer AccountDID, consumer SpaceDID, provider ServiceDID, cause cid.Cid) (SubscriptionID, error) {
 	// Ensure the provider is allowed.
 	if !slices.ContainsFunc(s.providers, func(p ServiceDID) bool {
 		return p.String() == provider.String()
 	}) {
-		return ErrProviderNotAllowed
+		return "", ErrProviderNotAllowed
 	}
 
-	// Ensure the customer exists.
-	_, err := s.customerStore.Get(ctx, account)
+	subscriptionID, err := NewSubscriptionID(consumer)
 	if err != nil {
-		return fmt.Errorf("getting customer: %w", err)
+		return "", fmt.Errorf("creating subscription ID: %w", err)
 	}
 
-	subscriptionID, err := NewSubscriptionID(space)
-	if err != nil {
-		return fmt.Errorf("creating subscription ID: %w", err)
-	}
-
-	if err := s.subscriptionStore.Add(ctx, provider, subscriptionID, account, cause); err != nil {
+	if err := s.subscriptionStore.Add(ctx, provider, subscriptionID, customer, cause); err != nil {
 		if !errors.Is(err, subscription.ErrSubscriptionExists) {
-			return fmt.Errorf("adding subscription: %w", err)
+			return "", fmt.Errorf("adding subscription: %w", err)
 		}
 	}
 
-	return s.consumerStore.Add(ctx, provider, space, account, subscriptionID, cause)
+	if err := s.consumerStore.Add(ctx, provider, consumer, customer, subscriptionID, cause); err != nil {
+		return "", fmt.Errorf("adding consumer: %w", err)
+	}
+
+	return subscriptionID, nil
 }
 
 func NewSubscriptionID(consumer SpaceDID) (string, error) {

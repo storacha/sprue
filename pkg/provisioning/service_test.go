@@ -1,4 +1,4 @@
-package provisioner
+package provisioning_test
 
 import (
 	"context"
@@ -7,10 +7,11 @@ import (
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/lib/didmailto"
+	"github.com/storacha/sprue/pkg/provisioning"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	consumermemory "github.com/storacha/sprue/pkg/store/consumer/memory"
-	"github.com/storacha/sprue/pkg/store/customer"
 	customermemory "github.com/storacha/sprue/pkg/store/customer/memory"
+	"github.com/storacha/sprue/pkg/store/subscription"
 	subscriptionmemory "github.com/storacha/sprue/pkg/store/subscription/memory"
 	"github.com/stretchr/testify/require"
 )
@@ -22,15 +23,8 @@ func mustMailtoDID(t *testing.T, email string) did.DID {
 	return d
 }
 
-func mustDID(t *testing.T, s string) did.DID {
-	t.Helper()
-	d, err := did.Parse(s)
-	require.NoError(t, err)
-	return d
-}
-
 type testSetup struct {
-	service           *ProvisioningService
+	service           *provisioning.Service
 	customerStore     *customermemory.Store
 	consumerStore     *consumermemory.Store
 	subscriptionStore *subscriptionmemory.Store
@@ -40,27 +34,20 @@ type testSetup struct {
 
 func setup(t *testing.T) testSetup {
 	t.Helper()
-	customerStore := customermemory.New()
 	consumerStore := consumermemory.New()
 	subscriptionStore := subscriptionmemory.New()
 
 	provider := testutil.Service.DID()
 	account := mustMailtoDID(t, "alice@example.com")
-	product := mustDID(t, "did:web:free.web3.storage")
 
-	err := customerStore.Add(context.Background(), account, nil, product, nil, nil)
-	require.NoError(t, err)
-
-	svc := New(
+	svc := provisioning.NewService(
 		[]did.DID{provider},
-		customerStore,
 		consumerStore,
 		subscriptionStore,
 	)
 
 	return testSetup{
 		service:           svc,
-		customerStore:     customerStore,
 		consumerStore:     consumerStore,
 		subscriptionStore: subscriptionStore,
 		provider:          provider,
@@ -76,7 +63,7 @@ func TestProvision(t *testing.T) {
 		space := testutil.RandomDID(t)
 		cause := testutil.RandomCID(t)
 
-		err := s.service.Provision(ctx, s.account, space, s.provider, cause)
+		sub, err := s.service.Provision(ctx, s.account, space, s.provider, cause)
 		require.NoError(t, err)
 
 		// Verify consumer record was created
@@ -88,9 +75,7 @@ func TestProvision(t *testing.T) {
 		require.Equal(t, cause, rec.Cause)
 
 		// Verify subscription was created
-		subID, err := NewSubscriptionID(space)
-		require.NoError(t, err)
-		subRec, err := s.subscriptionStore.Get(ctx, s.provider, subID)
+		subRec, err := s.subscriptionStore.Get(ctx, s.provider, sub)
 		require.NoError(t, err)
 		require.Equal(t, s.account, subRec.Customer)
 	})
@@ -101,18 +86,8 @@ func TestProvision(t *testing.T) {
 		cause := testutil.RandomCID(t)
 		badProvider := testutil.RandomDID(t)
 
-		err := s.service.Provision(ctx, s.account, space, badProvider, cause)
-		require.ErrorIs(t, err, ErrProviderNotAllowed)
-	})
-
-	t.Run("customer not found", func(t *testing.T) {
-		s := setup(t)
-		space := testutil.RandomDID(t)
-		cause := testutil.RandomCID(t)
-		unknownAccount := mustMailtoDID(t, "unknown@example.com")
-
-		err := s.service.Provision(ctx, unknownAccount, space, s.provider, cause)
-		require.ErrorIs(t, err, customer.ErrCustomerNotFound)
+		_, err := s.service.Provision(ctx, s.account, space, badProvider, cause)
+		require.ErrorIs(t, err, provisioning.ErrProviderNotAllowed)
 	})
 
 	t.Run("duplicate provision returns consumer exists error", func(t *testing.T) {
@@ -120,10 +95,10 @@ func TestProvision(t *testing.T) {
 		space := testutil.RandomDID(t)
 		cause := testutil.RandomCID(t)
 
-		err := s.service.Provision(ctx, s.account, space, s.provider, cause)
+		_, err := s.service.Provision(ctx, s.account, space, s.provider, cause)
 		require.NoError(t, err)
 
-		err = s.service.Provision(ctx, s.account, space, s.provider, cause)
+		_, err = s.service.Provision(ctx, s.account, space, s.provider, cause)
 		require.ErrorIs(t, err, consumer.ErrConsumerExists)
 	})
 }
@@ -136,7 +111,7 @@ func TestGetConsumer(t *testing.T) {
 		space := testutil.RandomDID(t)
 		cause := testutil.RandomCID(t)
 
-		err := s.service.Provision(ctx, s.account, space, s.provider, cause)
+		_, err := s.service.Provision(ctx, s.account, space, s.provider, cause)
 		require.NoError(t, err)
 
 		rec, err := s.service.GetConsumer(ctx, s.provider, space)
@@ -154,26 +129,6 @@ func TestGetConsumer(t *testing.T) {
 	})
 }
 
-func TestGetCustomer(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("found", func(t *testing.T) {
-		s := setup(t)
-
-		rec, err := s.service.GetCustomer(ctx, s.provider, s.account)
-		require.NoError(t, err)
-		require.Equal(t, s.account, rec.Customer)
-	})
-
-	t.Run("not found", func(t *testing.T) {
-		s := setup(t)
-		unknown := mustMailtoDID(t, "nobody@example.com")
-
-		_, err := s.service.GetCustomer(ctx, s.provider, unknown)
-		require.ErrorIs(t, err, customer.ErrCustomerNotFound)
-	})
-}
-
 func TestGetSubscription(t *testing.T) {
 	ctx := context.Background()
 
@@ -182,13 +137,10 @@ func TestGetSubscription(t *testing.T) {
 		space := testutil.RandomDID(t)
 		cause := testutil.RandomCID(t)
 
-		err := s.service.Provision(ctx, s.account, space, s.provider, cause)
+		sub, err := s.service.Provision(ctx, s.account, space, s.provider, cause)
 		require.NoError(t, err)
 
-		subID, err := NewSubscriptionID(space)
-		require.NoError(t, err)
-
-		rec, err := s.service.GetSubscription(ctx, s.provider, subID)
+		rec, err := s.service.GetSubscription(ctx, s.provider, sub)
 		require.NoError(t, err)
 		require.Equal(t, s.account, rec.Customer)
 		require.Equal(t, s.provider, rec.Provider)
@@ -198,7 +150,7 @@ func TestGetSubscription(t *testing.T) {
 		s := setup(t)
 
 		_, err := s.service.GetSubscription(ctx, s.provider, "nonexistent")
-		require.Error(t, err)
+		require.ErrorIs(t, err, subscription.ErrSubscriptionNotFound)
 	})
 }
 
@@ -219,7 +171,7 @@ func TestListServiceProviders(t *testing.T) {
 		space := testutil.RandomDID(t)
 		cause := testutil.RandomCID(t)
 
-		err := s.service.Provision(ctx, s.account, space, s.provider, cause)
+		_, err := s.service.Provision(ctx, s.account, space, s.provider, cause)
 		require.NoError(t, err)
 
 		providers, err := s.service.ListServiceProviders(ctx, space)
@@ -233,10 +185,10 @@ func TestNewSubscriptionID(t *testing.T) {
 	t.Run("deterministic", func(t *testing.T) {
 		space := testutil.RandomDID(t)
 
-		id1, err := NewSubscriptionID(space)
+		id1, err := provisioning.NewSubscriptionID(space)
 		require.NoError(t, err)
 
-		id2, err := NewSubscriptionID(space)
+		id2, err := provisioning.NewSubscriptionID(space)
 		require.NoError(t, err)
 
 		require.Equal(t, id1, id2)
@@ -246,10 +198,10 @@ func TestNewSubscriptionID(t *testing.T) {
 		space1 := testutil.RandomDID(t)
 		space2 := testutil.RandomDID(t)
 
-		id1, err := NewSubscriptionID(space1)
+		id1, err := provisioning.NewSubscriptionID(space1)
 		require.NoError(t, err)
 
-		id2, err := NewSubscriptionID(space2)
+		id2, err := provisioning.NewSubscriptionID(space2)
 		require.NoError(t, err)
 
 		require.NotEqual(t, id1, id2)

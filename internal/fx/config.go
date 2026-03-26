@@ -13,10 +13,7 @@ type ConfigParams struct {
 
 // ConfigModule provides configuration via viper.
 var ConfigModule = fx.Module("config",
-	fx.Provide(
-		NewConfig,
-		ProvideConfigs,
-	),
+	fx.Provide(NewConfig),
 )
 
 // NewConfig creates the Config from viper, loading from the config file,

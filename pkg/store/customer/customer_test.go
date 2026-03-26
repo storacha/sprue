@@ -74,7 +74,7 @@ func TestCustomerStore(t *testing.T) {
 
 			t.Run("Add stores optional fields", func(t *testing.T) {
 				customerID := testutil.RandomDID(t)
-				account := testutil.RandomDID(t)
+				account := "xyz:" + uuid.NewString()
 				product := testutil.RandomDID(t)
 				var capacity uint64 = 1024
 

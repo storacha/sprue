@@ -12,47 +12,38 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/identity"
-	"github.com/storacha/sprue/pkg/provisioner"
+	"github.com/storacha/sprue/pkg/provisioning"
 	consumermemory "github.com/storacha/sprue/pkg/store/consumer/memory"
-	customermemory "github.com/storacha/sprue/pkg/store/customer/memory"
 	dlgmemory "github.com/storacha/sprue/pkg/store/delegation/memory"
 	subscriptionmemory "github.com/storacha/sprue/pkg/store/subscription/memory"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )
 
-func newTestProvisioningService(t *testing.T, providers []did.DID) *provisioner.ProvisioningService {
+func newTestProvisioningService(t *testing.T, providers []did.DID) *provisioning.Service {
 	t.Helper()
-	return provisioner.New(
+	return provisioning.NewService(
 		providers,
-		customermemory.New(),
 		consumermemory.New(),
 		subscriptionmemory.New(),
 	)
 }
 
-func newProvisionedService(t *testing.T, serviceDID did.DID, space did.DID) *provisioner.ProvisioningService {
+func newProvisionedService(t *testing.T, serviceDID did.DID, space did.DID) *provisioning.Service {
 	t.Helper()
-	customerStore := customermemory.New()
+
 	consumerStore := consumermemory.New()
 	subscriptionStore := subscriptionmemory.New()
-
 	account := mustMailtoDID(t, "test@example.com")
-	product, err := did.Parse("did:web:free.plan.storacha.network")
-	require.NoError(t, err)
 
-	err = customerStore.Add(context.Background(), account, nil, product, nil, nil)
-	require.NoError(t, err)
-
-	ps := provisioner.New(
+	ps := provisioning.NewService(
 		[]did.DID{serviceDID},
-		customerStore,
 		consumerStore,
 		subscriptionStore,
 	)
 
 	cause := testutil.RandomCID(t)
-	err = ps.Provision(context.Background(), account, space, serviceDID, cause)
+	_, err := ps.Provision(context.Background(), account, space, serviceDID, cause)
 	require.NoError(t, err)
 
 	return ps
