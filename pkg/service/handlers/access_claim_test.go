@@ -9,9 +9,9 @@ import (
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/ucan"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/identity"
 	dlgmemory "github.com/storacha/sprue/pkg/store/delegation/memory"
-	"github.com/storacha/sprue/internal/testutil"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )

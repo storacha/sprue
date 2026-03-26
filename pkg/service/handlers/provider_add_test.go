@@ -52,7 +52,7 @@ func TestProviderAddHandler(t *testing.T) {
 
 	t.Run("success with payment plan", func(t *testing.T) {
 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: false}
-		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t,true)
+		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, true)
 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
 
 		space := newTestIdentity(t)
@@ -83,7 +83,7 @@ func TestProviderAddHandler(t *testing.T) {
 	t.Run("success skipping payment plan check", func(t *testing.T) {
 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
 		// No customer added — but payment plan check is skipped
-		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t,false)
+		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
 
 		space := newTestIdentity(t)
@@ -113,7 +113,7 @@ func TestProviderAddHandler(t *testing.T) {
 
 	t.Run("invalid account DID", func(t *testing.T) {
 		deployCfg := config.DeploymentConfig{}
-		serviceID, providerDID, _, provisioningSvc, billingSvc := setupProviderAdd(t,false)
+		serviceID, providerDID, _, provisioningSvc, billingSvc := setupProviderAdd(t, false)
 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
 
 		space := newTestIdentity(t)
@@ -142,7 +142,7 @@ func TestProviderAddHandler(t *testing.T) {
 
 	t.Run("invalid provider DID", func(t *testing.T) {
 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
-		serviceID, _, account, provisioningSvc, billingSvc := setupProviderAdd(t,false)
+		serviceID, _, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
 
 		space := newTestIdentity(t)
@@ -171,7 +171,7 @@ func TestProviderAddHandler(t *testing.T) {
 
 	t.Run("invalid space DID", func(t *testing.T) {
 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
-		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t,false)
+		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
 
 		cap := ucan.NewCapability(
@@ -199,7 +199,7 @@ func TestProviderAddHandler(t *testing.T) {
 	t.Run("missing payment plan", func(t *testing.T) {
 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: false}
 		// No customer added — payment plan check will fail
-		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t,false)
+		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
 
 		space := newTestIdentity(t)
@@ -228,7 +228,7 @@ func TestProviderAddHandler(t *testing.T) {
 
 	t.Run("provider not allowed", func(t *testing.T) {
 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
-		serviceID, _, account, provisioningSvc, billingSvc := setupProviderAdd(t,false)
+		serviceID, _, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
 
 		space := newTestIdentity(t)
