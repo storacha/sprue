@@ -52,7 +52,7 @@ func (s ReplicationStatus) String() string {
 	return "unknown"
 }
 
-type ReplicaRecord struct {
+type Record struct {
 	// Space the blob is stored in.
 	Space did.DID
 	// Hash of the blob.
@@ -77,5 +77,5 @@ type Store interface {
 	// Update the replication status. May return [ErrReplicaNotFound].
 	SetStatus(ctx context.Context, space did.DID, digest multihash.Multihash, provider did.DID, status ReplicationStatus) error
 	// List replicas for the given space/blob.
-	List(ctx context.Context, space did.DID, digest multihash.Multihash) ([]ReplicaRecord, error)
+	List(ctx context.Context, space did.DID, digest multihash.Multihash) ([]Record, error)
 }

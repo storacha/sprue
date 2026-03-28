@@ -13,6 +13,7 @@ import (
 	"github.com/storacha/sprue/pkg/mailer/nop"
 	"github.com/storacha/sprue/pkg/mailer/postmark"
 	"github.com/storacha/sprue/pkg/provisioning"
+	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	"github.com/storacha/sprue/pkg/store/subscription"
 )
@@ -21,6 +22,7 @@ var ServicesModule = fx.Module("services",
 	fx.Provide(NewMailingService),
 	fx.Provide(NewProvisioningService),
 	fx.Provide(billing.NewService),
+	fx.Provide(routing.NewService),
 )
 
 func NewMailingService(deploymentCfg config.DeploymentConfig, mailerCfg config.MailerConfig, logger *zap.Logger) (mailer.Mailer, error) {

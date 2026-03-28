@@ -17,14 +17,14 @@ import (
 type Store struct {
 	mutex sync.RWMutex
 	// space -> list of consumer records
-	consumers map[did.DID][]consumer.ConsumerRecord
+	consumers map[did.DID][]consumer.Record
 }
 
 var _ consumer.Store = (*Store)(nil)
 
 func New() *Store {
 	return &Store{
-		consumers: map[did.DID][]consumer.ConsumerRecord{},
+		consumers: map[did.DID][]consumer.Record{},
 	}
 }
 
@@ -38,7 +38,7 @@ func (s *Store) Add(ctx context.Context, provider did.DID, space did.DID, custom
 		}
 	}
 
-	s.consumers[space] = append(s.consumers[space], consumer.ConsumerRecord{
+	s.consumers[space] = append(s.consumers[space], consumer.Record{
 		Provider:     provider,
 		Consumer:     space,
 		Customer:     customer,
@@ -48,7 +48,7 @@ func (s *Store) Add(ctx context.Context, provider did.DID, space did.DID, custom
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, provider did.DID, space did.DID) (consumer.ConsumerRecord, error) {
+func (s *Store) Get(ctx context.Context, provider did.DID, space did.DID) (consumer.Record, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -57,10 +57,10 @@ func (s *Store) Get(ctx context.Context, provider did.DID, space did.DID) (consu
 			return c, nil
 		}
 	}
-	return consumer.ConsumerRecord{}, consumer.ErrConsumerNotFound
+	return consumer.Record{}, consumer.ErrConsumerNotFound
 }
 
-func (s *Store) GetBySubscription(ctx context.Context, provider did.DID, subscription string) (consumer.ConsumerRecord, error) {
+func (s *Store) GetBySubscription(ctx context.Context, provider did.DID, subscription string) (consumer.Record, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -71,10 +71,10 @@ func (s *Store) GetBySubscription(ctx context.Context, provider did.DID, subscri
 			}
 		}
 	}
-	return consumer.ConsumerRecord{}, consumer.ErrConsumerNotFound
+	return consumer.Record{}, consumer.ErrConsumerNotFound
 }
 
-func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.ListOption) (store.Page[consumer.ConsumerRecord], error) {
+func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.ListOption) (store.Page[consumer.Record], error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -88,10 +88,10 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.Lis
 	if cfg.Cursor != nil {
 		i, err := strconv.Atoi(*cfg.Cursor)
 		if err != nil {
-			return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("invalid cursor: %w", err)
+			return store.Page[consumer.Record]{}, fmt.Errorf("invalid cursor: %w", err)
 		}
 		if i < 0 || i > len(consumers) {
-			return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("cursor out of bounds")
+			return store.Page[consumer.Record]{}, fmt.Errorf("cursor out of bounds")
 		}
 		consumers = consumers[i:]
 	}
@@ -104,13 +104,13 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.Lis
 		cursor = &c
 	}
 
-	return store.Page[consumer.ConsumerRecord]{
+	return store.Page[consumer.Record]{
 		Cursor:  cursor,
 		Results: consumers,
 	}, nil
 }
 
-func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ...consumer.ListByCustomerOption) (store.Page[consumer.ConsumerRecord], error) {
+func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ...consumer.ListByCustomerOption) (store.Page[consumer.Record], error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -120,7 +120,7 @@ func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ..
 		opt(&cfg)
 	}
 
-	var allConsumers []consumer.ConsumerRecord
+	var allConsumers []consumer.Record
 	for _, c := range s.consumers {
 		for _, r := range c {
 			if r.Customer == customer {
@@ -128,7 +128,7 @@ func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ..
 			}
 		}
 	}
-	slices.SortFunc(allConsumers, func(a, b consumer.ConsumerRecord) int {
+	slices.SortFunc(allConsumers, func(a, b consumer.Record) int {
 		return strings.Compare(a.Consumer.String(), b.Consumer.String())
 	})
 
@@ -136,10 +136,10 @@ func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ..
 	if cfg.Cursor != nil {
 		i, err := strconv.Atoi(*cfg.Cursor)
 		if err != nil {
-			return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("invalid cursor: %w", err)
+			return store.Page[consumer.Record]{}, fmt.Errorf("invalid cursor: %w", err)
 		}
 		if i < 0 || i > len(consumers) {
-			return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("cursor out of bounds")
+			return store.Page[consumer.Record]{}, fmt.Errorf("cursor out of bounds")
 		}
 		consumers = consumers[i:]
 	}
@@ -152,7 +152,7 @@ func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ..
 		cursor = &c
 	}
 
-	return store.Page[consumer.ConsumerRecord]{
+	return store.Page[consumer.Record]{
 		Cursor:  cursor,
 		Results: consumers,
 	}, nil

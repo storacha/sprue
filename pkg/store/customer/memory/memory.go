@@ -14,7 +14,7 @@ import (
 
 type Store struct {
 	mutex     sync.RWMutex
-	customers []customer.CustomerRecord
+	customers []customer.Record
 }
 
 var _ customer.Store = (*Store)(nil)
@@ -23,7 +23,7 @@ func New() *Store {
 	return &Store{}
 }
 
-func (s *Store) Get(ctx context.Context, customerID did.DID) (customer.CustomerRecord, error) {
+func (s *Store) Get(ctx context.Context, customerID did.DID) (customer.Record, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -32,10 +32,10 @@ func (s *Store) Get(ctx context.Context, customerID did.DID) (customer.CustomerR
 			return c, nil
 		}
 	}
-	return customer.CustomerRecord{}, customer.ErrCustomerNotFound
+	return customer.Record{}, customer.ErrCustomerNotFound
 }
 
-func (s *Store) List(ctx context.Context, options ...customer.ListOption) (store.Page[customer.CustomerRecord], error) {
+func (s *Store) List(ctx context.Context, options ...customer.ListOption) (store.Page[customer.Record], error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -61,7 +61,7 @@ func (s *Store) List(ctx context.Context, options ...customer.ListOption) (store
 		last := entries[*cfg.Limit-1].Customer.String()
 		cursor = &last
 	}
-	return store.Page[customer.CustomerRecord]{
+	return store.Page[customer.Record]{
 		Results: entries,
 		Cursor:  cursor,
 	}, nil
@@ -76,7 +76,7 @@ func (s *Store) Add(ctx context.Context, customerID did.DID, account *string, pr
 			return customer.ErrCustomerExists
 		}
 	}
-	c := customer.CustomerRecord{
+	c := customer.Record{
 		Customer:         customerID,
 		Account:          account,
 		Product:          product,
@@ -85,7 +85,7 @@ func (s *Store) Add(ctx context.Context, customerID did.DID, account *string, pr
 		InsertedAt:       time.Now(),
 	}
 	s.customers = append(s.customers, c)
-	slices.SortFunc(s.customers, func(a, b customer.CustomerRecord) int {
+	slices.SortFunc(s.customers, func(a, b customer.Record) int {
 		return strings.Compare(a.Customer.String(), b.Customer.String())
 	})
 	return nil

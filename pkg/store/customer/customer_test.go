@@ -126,7 +126,7 @@ func TestCustomerStore(t *testing.T) {
 				require.NoError(t, s.Add(t.Context(), c1, nil, product, nil, nil))
 				require.NoError(t, s.Add(t.Context(), c2, nil, product, nil, nil))
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[customer.CustomerRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[customer.Record], error) {
 					var listOpts []customer.ListOption
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, customer.WithListCursor(*opts.Cursor))
@@ -149,7 +149,7 @@ func TestCustomerStore(t *testing.T) {
 					require.NoError(t, s.Add(t.Context(), testutil.RandomDID(t), nil, product, nil, nil))
 				}
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[customer.CustomerRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[customer.Record], error) {
 					var listOpts []customer.ListOption
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, customer.WithListCursor(*opts.Cursor))

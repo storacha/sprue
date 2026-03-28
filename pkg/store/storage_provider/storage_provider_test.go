@@ -89,16 +89,18 @@ func TestStorageProviderStore(t *testing.T) {
 				provider := testutil.RandomDID(t)
 				endpoint := randomEndpoint(t)
 				proof := makeProof(t)
+				weight := 10
+				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), provider, endpoint, proof, 10, 5))
+				require.NoError(t, s.Put(t.Context(), provider, endpoint, proof, weight, &replWeight))
 
 				rec, err := s.Get(t.Context(), provider)
 				require.NoError(t, err)
 				require.Equal(t, provider, rec.Provider)
 				require.Equal(t, endpoint, rec.Endpoint)
 				require.Equal(t, proof.Root().Link(), rec.Proof.Root().Link())
-				require.Equal(t, 10, rec.Weight)
-				require.Equal(t, 5, rec.ReplicationWeight)
+				require.Equal(t, weight, rec.Weight)
+				require.Equal(t, replWeight, *rec.ReplicationWeight)
 				require.False(t, rec.InsertedAt.IsZero())
 			})
 
@@ -108,16 +110,20 @@ func TestStorageProviderStore(t *testing.T) {
 				endpoint2 := randomEndpoint(t)
 				proof1 := makeProof(t)
 				proof2 := makeProof(t)
+				weight1 := 10
+				weight2 := 20
+				replWeight1 := 5
+				replWeight2 := 15
 
-				require.NoError(t, s.Put(t.Context(), provider, endpoint1, proof1, 10, 5))
-				require.NoError(t, s.Put(t.Context(), provider, endpoint2, proof2, 20, 15))
+				require.NoError(t, s.Put(t.Context(), provider, endpoint1, proof1, weight1, &replWeight1))
+				require.NoError(t, s.Put(t.Context(), provider, endpoint2, proof2, weight2, &replWeight2))
 
 				rec, err := s.Get(t.Context(), provider)
 				require.NoError(t, err)
 				require.Equal(t, endpoint2, rec.Endpoint)
 				require.Equal(t, proof2.Root().Link(), rec.Proof.Root().Link())
-				require.Equal(t, 20, rec.Weight)
-				require.Equal(t, 15, rec.ReplicationWeight)
+				require.Equal(t, weight2, rec.Weight)
+				require.Equal(t, replWeight2, *rec.ReplicationWeight)
 			})
 
 			t.Run("Get returns ErrStorageProviderNotFound for unknown provider", func(t *testing.T) {
@@ -131,8 +137,10 @@ func TestStorageProviderStore(t *testing.T) {
 				provider := testutil.RandomDID(t)
 				endpoint := randomEndpoint(t)
 				proof := makeProof(t)
+				weight := 10
+				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), provider, endpoint, proof, 10, 5))
+				require.NoError(t, s.Put(t.Context(), provider, endpoint, proof, weight, &replWeight))
 				require.NoError(t, s.Delete(t.Context(), provider))
 
 				_, err := s.Get(t.Context(), provider)
@@ -151,11 +159,13 @@ func TestStorageProviderStore(t *testing.T) {
 				provider2 := testutil.RandomDID(t)
 				endpoint := randomEndpoint(t)
 				proof := makeProof(t)
+				weight := 10
+				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), provider1, endpoint, proof, 10, 5))
-				require.NoError(t, s.Put(t.Context(), provider2, endpoint, proof, 10, 5))
+				require.NoError(t, s.Put(t.Context(), provider1, endpoint, proof, weight, &replWeight))
+				require.NoError(t, s.Put(t.Context(), provider2, endpoint, proof, weight, &replWeight))
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.StorageProviderRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.Record], error) {
 					var listOpts []storageprovider.ListOption
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, storageprovider.WithListCursor(*opts.Cursor))
@@ -175,11 +185,13 @@ func TestStorageProviderStore(t *testing.T) {
 			t.Run("List paginates results", func(t *testing.T) {
 				endpoint := randomEndpoint(t)
 				proof := makeProof(t)
+				weight := 10
+				replWeight := 5
 				for range 5 {
-					require.NoError(t, s.Put(t.Context(), testutil.RandomDID(t), endpoint, proof, 10, 5))
+					require.NoError(t, s.Put(t.Context(), testutil.RandomDID(t), endpoint, proof, weight, &replWeight))
 				}
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.StorageProviderRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.Record], error) {
 					listOpts := []storageprovider.ListOption{storageprovider.WithListLimit(2)}
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, storageprovider.WithListCursor(*opts.Cursor))
@@ -194,11 +206,13 @@ func TestStorageProviderStore(t *testing.T) {
 				provider := testutil.RandomDID(t)
 				endpoint := randomEndpoint(t)
 				proof := makeProof(t)
+				weight := 10
+				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), provider, endpoint, proof, 10, 5))
+				require.NoError(t, s.Put(t.Context(), provider, endpoint, proof, weight, &replWeight))
 				require.NoError(t, s.Delete(t.Context(), provider))
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.StorageProviderRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.Record], error) {
 					var listOpts []storageprovider.ListOption
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, storageprovider.WithListCursor(*opts.Cursor))

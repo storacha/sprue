@@ -15,8 +15,8 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	fdm "github.com/storacha/go-ucanto/core/result/failure/datamodel"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
+	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 )
 
@@ -31,7 +31,7 @@ type DelegationFetcher interface {
 type Client struct {
 	endpoint          *url.URL
 	piriDID           did.DID
-	signer            principal.Signer
+	signer            ucan.Signer
 	connection        uclient.Connection
 	delegationFetcher DelegationFetcher
 	logger            *zap.Logger
@@ -39,7 +39,7 @@ type Client struct {
 
 // New creates a new Piri client.
 // The delegationFetcher is used to fetch delegation proofs on-demand for each request.
-func New(endpoint *url.URL, piriDID did.DID, signer principal.Signer, fetcher DelegationFetcher, logger *zap.Logger) (*Client, error) {
+func New(endpoint *url.URL, piriDID did.DID, signer ucan.Signer, fetcher DelegationFetcher, logger *zap.Logger) (*Client, error) {
 	channel := ucanhttp.NewChannel(endpoint)
 	conn, err := uclient.NewConnection(piriDID, channel)
 	if err != nil {
@@ -250,11 +250,11 @@ type AcceptResponse struct {
 }
 
 // Accept sends a blob/accept invocation to the piri node.
-func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptResponse, receipt.AnyReceipt, error) {
+func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptResponse, invocation.Invocation, receipt.AnyReceipt, error) {
 	// Fetch delegation fresh for each request
 	opts, err := c.fetchDelegationOpts(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Use WithNoExpiration so the invocation CID is deterministic and matches
@@ -280,7 +280,7 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 		opts...,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating accept invocation: %w", err)
+		return nil, nil, nil, fmt.Errorf("creating accept invocation: %w", err)
 	}
 
 	// Log invocation details
@@ -301,20 +301,20 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 	// Execute the invocation
 	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
 	if err != nil {
-		return nil, nil, fmt.Errorf("executing accept invocation: %w", err)
+		return nil, nil, nil, fmt.Errorf("executing accept invocation: %w", err)
 	}
 
 	// Get the receipt
 	rcptLink, ok := resp.Get(inv.Link())
 	if !ok {
-		return nil, nil, fmt.Errorf("receipt not found for invocation")
+		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
 	}
 
 	// Read the receipt using the any reader
 	anyReader := receipt.NewAnyReceiptReader(captypes.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading receipt: %w", err)
+		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
 	}
 
 	// Check for error response
@@ -336,10 +336,10 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 		if errDetails == "" {
 			errDetails = "unknown error"
 		}
-		return nil, nil, fmt.Errorf("accept failed: %s", errDetails)
+		return nil, nil, nil, fmt.Errorf("accept failed: %s", errDetails)
 	}
 	if okNode == nil {
-		return nil, nil, fmt.Errorf("accept returned nil result")
+		return nil, nil, nil, fmt.Errorf("accept returned nil result")
 	}
 
 	// Extract the site link from the ok node
@@ -352,5 +352,34 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 
 	return &AcceptResponse{
 		Site: site,
-	}, anyRcpt, nil
+	}, inv, anyRcpt, nil
+}
+
+// AcceptInvocation returns the invocation for the accept request (for use in effects).
+func (c *Client) AcceptInvocation(ctx context.Context, req *AcceptRequest) (invocation.IssuedInvocation, error) {
+	opts, err := c.fetchDelegationOpts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	opts = append(opts, delegation.WithNoExpiration())
+	return blobcap.Accept.Invoke(
+		c.signer,
+		c.piriDID,
+		c.piriDID.String(),
+		blobcap.AcceptCaveats{
+			Space: req.Space,
+			Blob: captypes.Blob{
+				Digest: req.Digest,
+				Size:   req.Size,
+			},
+			Put: blobcap.Promise{
+				UcanAwait: blobcap.Await{
+					Selector: ".out.ok",
+					Link:     req.Put,
+				},
+			},
+		},
+		opts...,
+	)
 }

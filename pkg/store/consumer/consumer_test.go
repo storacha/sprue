@@ -153,7 +153,7 @@ func TestConsumerStore(t *testing.T) {
 				}
 
 				// collect all via store.Collect with a batch size of 2
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[consumer.ConsumerRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[consumer.Record], error) {
 					listOpts := []consumer.ListOption{consumer.WithListLimit(2)}
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, consumer.WithListCursor(*opts.Cursor))
@@ -242,7 +242,7 @@ func TestConsumerStore(t *testing.T) {
 					require.NoError(t, s.Add(t.Context(), provider, space, customer, "sub"+string(rune('1'+i)), cause))
 				}
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[consumer.ConsumerRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[consumer.Record], error) {
 					listOpts := []consumer.ListByCustomerOption{consumer.WithListByCustomerLimit(2)}
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, consumer.WithListByCustomerCursor(*opts.Cursor))
