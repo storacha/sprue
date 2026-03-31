@@ -41,7 +41,7 @@ func WithListByProviderAndCustomerCursor(cursor string) ListByProviderAndCustome
 	}
 }
 
-type SubscriptionRecord struct {
+type Record struct {
 	// DID of the provider who services this subscription
 	Provider did.DID
 	// ID of this subscription - should be unique per-provider
@@ -57,11 +57,11 @@ type SubscriptionRecord struct {
 type Store interface {
 	// Get a subscription by provider DID and subscription ID. May return
 	// [ErrSubscriptionNotFound].
-	Get(ctx context.Context, provider did.DID, subscription string) (SubscriptionRecord, error)
+	Get(ctx context.Context, provider did.DID, subscription string) (Record, error)
 	// Add a subscription - a relationship between a customer and a provider that
 	// will allow for provisioning of consumers. May return [ErrSubscriptionExists]
 	// if the subscription already exists.
 	Add(ctx context.Context, provider did.DID, subscription string, customer did.DID, cause cid.Cid) error
 	// A list of the subscriptions a customer has with a provider.
-	ListByProviderAndCustomer(ctx context.Context, provider did.DID, customer did.DID, options ...ListByProviderAndCustomerOption) (store.Page[SubscriptionRecord], error)
+	ListByProviderAndCustomer(ctx context.Context, provider did.DID, customer did.DID, options ...ListByProviderAndCustomerOption) (store.Page[Record], error)
 }

@@ -8,3 +8,4 @@ The Storacha upload service in Go.
 * Plans, provisions, subscriptions, usage are not stores, they are services.
 * The following dynamo tables have GSIs that do not exist in w3infra that need to be added:
     * `consumer` - `consumerV3` and `customerV2`
+* Using `cid.Cid` in new code over `ipld.Link` to ease transition to UCAN 1.0 when it comes.

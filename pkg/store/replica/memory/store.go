@@ -18,14 +18,14 @@ import (
 type Store struct {
 	mutex sync.RWMutex
 	// space DID -> blob digest -> replica record
-	replicas map[did.DID]bytemap.ByteMap[multihash.Multihash, []replica.ReplicaRecord]
+	replicas map[did.DID]bytemap.ByteMap[multihash.Multihash, []replica.Record]
 }
 
 var _ replica.Store = (*Store)(nil)
 
 func New() *Store {
 	return &Store{
-		replicas: make(map[did.DID]bytemap.ByteMap[multihash.Multihash, []replica.ReplicaRecord]),
+		replicas: make(map[did.DID]bytemap.ByteMap[multihash.Multihash, []replica.Record]),
 	}
 }
 
@@ -33,7 +33,7 @@ func (s *Store) Add(ctx context.Context, space did.DID, digest multihash.Multiha
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if _, ok := s.replicas[space]; !ok {
-		s.replicas[space] = bytemap.NewByteMap[multihash.Multihash, []replica.ReplicaRecord](-1)
+		s.replicas[space] = bytemap.NewByteMap[multihash.Multihash, []replica.Record](-1)
 	}
 	replicas := s.replicas[space].Get(digest)
 	for _, r := range replicas {
@@ -41,7 +41,7 @@ func (s *Store) Add(ctx context.Context, space did.DID, digest multihash.Multiha
 			return replica.ErrReplicaExists
 		}
 	}
-	replicas = append(replicas, replica.ReplicaRecord{
+	replicas = append(replicas, replica.Record{
 		Space:     space,
 		Digest:    digest,
 		Provider:  provider,
@@ -50,14 +50,14 @@ func (s *Store) Add(ctx context.Context, space did.DID, digest multihash.Multiha
 		CreatedAt: time.Now(),
 	})
 	// sort by provider since it is unique in this list
-	slices.SortFunc(replicas, func(a, b replica.ReplicaRecord) int {
+	slices.SortFunc(replicas, func(a, b replica.Record) int {
 		return strings.Compare(a.Provider.String(), b.Provider.String())
 	})
 	s.replicas[space].Set(digest, replicas)
 	return nil
 }
 
-func (s *Store) List(ctx context.Context, space did.DID, digest multihash.Multihash) ([]replica.ReplicaRecord, error) {
+func (s *Store) List(ctx context.Context, space did.DID, digest multihash.Multihash) ([]replica.Record, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	if _, ok := s.replicas[space]; !ok {
@@ -70,7 +70,7 @@ func (s *Store) Retry(ctx context.Context, space did.DID, digest multihash.Multi
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if _, ok := s.replicas[space]; !ok {
-		s.replicas[space] = bytemap.NewByteMap[multihash.Multihash, []replica.ReplicaRecord](-1)
+		s.replicas[space] = bytemap.NewByteMap[multihash.Multihash, []replica.Record](-1)
 	}
 	replicas := s.replicas[space].Get(digest)
 	for i, r := range replicas {
@@ -88,7 +88,7 @@ func (s *Store) SetStatus(ctx context.Context, space did.DID, digest multihash.M
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if _, ok := s.replicas[space]; !ok {
-		s.replicas[space] = bytemap.NewByteMap[multihash.Multihash, []replica.ReplicaRecord](-1)
+		s.replicas[space] = bytemap.NewByteMap[multihash.Multihash, []replica.Record](-1)
 	}
 	replicas := s.replicas[space].Get(digest)
 	for i, r := range replicas {

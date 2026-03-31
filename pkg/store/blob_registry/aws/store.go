@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/ipfs/go-cid"
 	multihash "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-capabilities/pkg/blob"
+	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-libstoracha/digestutil"
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/internal/timeutil"
@@ -109,7 +109,7 @@ func (s *Store) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multihash) (blobregistry.EntryRecord, error) {
+func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multihash) (blobregistry.Record, error) {
 	out, err := s.dynamo.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -119,15 +119,15 @@ func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multiha
 		ConsistentRead: aws.Bool(true),
 	})
 	if err != nil {
-		return blobregistry.EntryRecord{}, fmt.Errorf("getting blob registry entry: %w", err)
+		return blobregistry.Record{}, fmt.Errorf("getting blob registry entry: %w", err)
 	}
 	if len(out.Item) == 0 {
-		return blobregistry.EntryRecord{}, blobregistry.ErrEntryNotFound
+		return blobregistry.Record{}, blobregistry.ErrEntryNotFound
 	}
 	return itemToRecord(out.Item)
 }
 
-func (s *Store) Register(ctx context.Context, space did.DID, bl blob.Blob, cause cid.Cid) error {
+func (s *Store) Register(ctx context.Context, space did.DID, blob captypes.Blob, cause cid.Cid) error {
 	consumers, err := s.collectConsumers(ctx, space)
 	if err != nil {
 		return fmt.Errorf("collecting consumers: %w", err)
@@ -140,8 +140,8 @@ func (s *Store) Register(ctx context.Context, space did.DID, bl blob.Blob, cause
 				TableName: aws.String(s.tableName),
 				Item: map[string]types.AttributeValue{
 					"space":      &types.AttributeValueMemberS{Value: space.String()},
-					"digest":     &types.AttributeValueMemberS{Value: digestutil.Format(bl.Digest)},
-					"size":       &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", bl.Size)},
+					"digest":     &types.AttributeValueMemberS{Value: digestutil.Format(blob.Digest)},
+					"size":       &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", blob.Size)},
 					"cause":      &types.AttributeValueMemberS{Value: cause.String()},
 					"insertedAt": &types.AttributeValueMemberS{Value: now},
 				},
@@ -155,12 +155,12 @@ func (s *Store) Register(ctx context.Context, space did.DID, bl blob.Blob, cause
 
 	receiptAt := time.Now()
 	for _, c := range consumers {
-		items = append(items, s.spaceDiff.TransactPut(ctx, c.Provider, space, c.Subscription, cause, int64(bl.Size), receiptAt))
+		items = append(items, s.spaceDiff.TransactPut(ctx, c.Provider, space, c.Subscription, cause, int64(blob.Size), receiptAt))
 	}
 
 	inc := map[string]uint64{
 		metrics.BlobAddTotalMetric:     1,
-		metrics.BlobAddSizeTotalMetric: bl.Size,
+		metrics.BlobAddSizeTotalMetric: blob.Size,
 	}
 	items = append(items, s.spaceMetrics.TransactIncrementTotals(space, inc)...)
 	items = append(items, s.adminMetrics.TransactIncrementTotals(inc)...)
@@ -236,7 +236,7 @@ func (s *Store) Deregister(ctx context.Context, space did.DID, digest multihash.
 	return nil
 }
 
-func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry.ListOption) (store.Page[blobregistry.EntryRecord], error) {
+func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry.ListOption) (store.Page[blobregistry.Record], error) {
 	cfg := blobregistry.ListConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -267,14 +267,14 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry
 
 	out, err := s.dynamo.Query(ctx, input)
 	if err != nil {
-		return store.Page[blobregistry.EntryRecord]{}, fmt.Errorf("listing blob registry entries: %w", err)
+		return store.Page[blobregistry.Record]{}, fmt.Errorf("listing blob registry entries: %w", err)
 	}
 
-	records := make([]blobregistry.EntryRecord, 0, len(out.Items))
+	records := make([]blobregistry.Record, 0, len(out.Items))
 	for _, item := range out.Items {
 		rec, err := itemToRecord(item)
 		if err != nil {
-			return store.Page[blobregistry.EntryRecord]{}, err
+			return store.Page[blobregistry.Record]{}, err
 		}
 		records = append(records, rec)
 	}
@@ -286,11 +286,11 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry
 		}
 	}
 
-	return store.Page[blobregistry.EntryRecord]{Results: records, Cursor: cursor}, nil
+	return store.Page[blobregistry.Record]{Results: records, Cursor: cursor}, nil
 }
 
-func (s *Store) collectConsumers(ctx context.Context, space did.DID) ([]consumer.ConsumerRecord, error) {
-	results, err := store.Collect(ctx, func(ctx context.Context, options store.PaginationConfig) (store.Page[consumer.ConsumerRecord], error) {
+func (s *Store) collectConsumers(ctx context.Context, space did.DID) ([]consumer.Record, error) {
+	results, err := store.Collect(ctx, func(ctx context.Context, options store.PaginationConfig) (store.Page[consumer.Record], error) {
 		opts := []consumer.ListOption{}
 		if options.Cursor != nil {
 			opts = append(opts, consumer.WithListCursor(*options.Cursor))
@@ -306,41 +306,41 @@ func (s *Store) collectConsumers(ctx context.Context, space did.DID) ([]consumer
 	return results, nil
 }
 
-func itemToRecord(item map[string]types.AttributeValue) (blobregistry.EntryRecord, error) {
+func itemToRecord(item map[string]types.AttributeValue) (blobregistry.Record, error) {
 	spaceAttr, ok := item["space"].(*types.AttributeValueMemberS)
 	if !ok {
-		return blobregistry.EntryRecord{}, fmt.Errorf("missing or invalid space attribute")
+		return blobregistry.Record{}, fmt.Errorf("missing or invalid space attribute")
 	}
 	space, err := did.Parse(spaceAttr.Value)
 	if err != nil {
-		return blobregistry.EntryRecord{}, fmt.Errorf("parsing space DID: %w", err)
+		return blobregistry.Record{}, fmt.Errorf("parsing space DID: %w", err)
 	}
 
 	digestAttr, ok := item["digest"].(*types.AttributeValueMemberS)
 	if !ok {
-		return blobregistry.EntryRecord{}, fmt.Errorf("missing or invalid digest attribute")
+		return blobregistry.Record{}, fmt.Errorf("missing or invalid digest attribute")
 	}
 	digest, err := digestutil.Parse(digestAttr.Value)
 	if err != nil {
-		return blobregistry.EntryRecord{}, fmt.Errorf("decoding digest: %w", err)
+		return blobregistry.Record{}, fmt.Errorf("decoding digest: %w", err)
 	}
 
 	sizeAttr, ok := item["size"].(*types.AttributeValueMemberN)
 	if !ok {
-		return blobregistry.EntryRecord{}, fmt.Errorf("missing or invalid size attribute")
+		return blobregistry.Record{}, fmt.Errorf("missing or invalid size attribute")
 	}
 	var size uint64
 	if _, err := fmt.Sscanf(sizeAttr.Value, "%d", &size); err != nil {
-		return blobregistry.EntryRecord{}, fmt.Errorf("parsing size: %w", err)
+		return blobregistry.Record{}, fmt.Errorf("parsing size: %w", err)
 	}
 
 	causeAttr, ok := item["cause"].(*types.AttributeValueMemberS)
 	if !ok {
-		return blobregistry.EntryRecord{}, fmt.Errorf("missing or invalid cause attribute")
+		return blobregistry.Record{}, fmt.Errorf("missing or invalid cause attribute")
 	}
 	cause, err := cid.Parse(causeAttr.Value)
 	if err != nil {
-		return blobregistry.EntryRecord{}, fmt.Errorf("parsing cause CID: %w", err)
+		return blobregistry.Record{}, fmt.Errorf("parsing cause CID: %w", err)
 	}
 
 	var insertedAt time.Time
@@ -348,9 +348,9 @@ func itemToRecord(item map[string]types.AttributeValue) (blobregistry.EntryRecor
 		insertedAt, _ = time.Parse(timeutil.SimplifiedISO8601, v.Value)
 	}
 
-	return blobregistry.EntryRecord{
+	return blobregistry.Record{
 		Space: space,
-		Blob: blob.Blob{
+		Blob: captypes.Blob{
 			Digest: digest,
 			Size:   size,
 		},

@@ -52,7 +52,7 @@ func WithListByCustomerCursor(cursor string) ListByCustomerOption {
 	}
 }
 
-type ConsumerRecord struct {
+type Record struct {
 	/** DID of the provider who provides services for the consumer. */
 	Provider did.DID
 	/** DID of the consumer (e.g. a space) for whom services have been provisioned. */
@@ -74,8 +74,8 @@ type Store interface {
 	Add(ctx context.Context, provider did.DID, space did.DID, customer did.DID, subscription string, cause cid.Cid) error
 	// May return [ErrConsumerNotFound] if no consumer record exists for the given
 	// provider and consumer.
-	Get(ctx context.Context, provider did.DID, space did.DID) (ConsumerRecord, error)
-	GetBySubscription(ctx context.Context, provider did.DID, subscription string) (ConsumerRecord, error)
-	List(ctx context.Context, space did.DID, options ...ListOption) (store.Page[ConsumerRecord], error)
-	ListByCustomer(ctx context.Context, customer did.DID, options ...ListByCustomerOption) (store.Page[ConsumerRecord], error)
+	Get(ctx context.Context, provider did.DID, space did.DID) (Record, error)
+	GetBySubscription(ctx context.Context, provider did.DID, subscription string) (Record, error)
+	List(ctx context.Context, space did.DID, options ...ListOption) (store.Page[Record], error)
+	ListByCustomer(ctx context.Context, customer did.DID, options ...ListByCustomerOption) (store.Page[Record], error)
 }

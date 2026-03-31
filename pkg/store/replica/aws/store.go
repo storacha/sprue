@@ -98,7 +98,7 @@ func (s *Store) Add(ctx context.Context, space did.DID, digest multihash.Multiha
 	return nil
 }
 
-func (s *Store) List(ctx context.Context, space did.DID, digest multihash.Multihash) ([]replica.ReplicaRecord, error) {
+func (s *Store) List(ctx context.Context, space did.DID, digest multihash.Multihash) ([]replica.Record, error) {
 	out, err := s.dynamo.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(s.tableName),
 		KeyConditionExpression: aws.String("#pk = :pk"),
@@ -113,7 +113,7 @@ func (s *Store) List(ctx context.Context, space did.DID, digest multihash.Multih
 		return nil, fmt.Errorf("listing replicas: %w", err)
 	}
 
-	records := make([]replica.ReplicaRecord, 0, len(out.Items))
+	records := make([]replica.Record, 0, len(out.Items))
 	for _, item := range out.Items {
 		rec, err := itemToRecord(item)
 		if err != nil {
@@ -189,53 +189,53 @@ func partitionKey(space did.DID, digest multihash.Multihash) string {
 	return space.String() + "#" + digestutil.Format(digest)
 }
 
-func itemToRecord(item map[string]types.AttributeValue) (replica.ReplicaRecord, error) {
+func itemToRecord(item map[string]types.AttributeValue) (replica.Record, error) {
 	spaceAttr, ok := item["space"].(*types.AttributeValueMemberS)
 	if !ok {
-		return replica.ReplicaRecord{}, fmt.Errorf("missing or invalid space attribute")
+		return replica.Record{}, fmt.Errorf("missing or invalid space attribute")
 	}
 	space, err := did.Parse(spaceAttr.Value)
 	if err != nil {
-		return replica.ReplicaRecord{}, fmt.Errorf("parsing space DID: %w", err)
+		return replica.Record{}, fmt.Errorf("parsing space DID: %w", err)
 	}
 
 	digestAttr, ok := item["digest"].(*types.AttributeValueMemberS)
 	if !ok {
-		return replica.ReplicaRecord{}, fmt.Errorf("missing or invalid digest attribute")
+		return replica.Record{}, fmt.Errorf("missing or invalid digest attribute")
 	}
 	digest, err := digestutil.Parse(digestAttr.Value)
 	if err != nil {
-		return replica.ReplicaRecord{}, fmt.Errorf("parsing digest: %w", err)
+		return replica.Record{}, fmt.Errorf("parsing digest: %w", err)
 	}
 
 	providerAttr, ok := item["provider"].(*types.AttributeValueMemberS)
 	if !ok {
-		return replica.ReplicaRecord{}, fmt.Errorf("missing or invalid provider attribute")
+		return replica.Record{}, fmt.Errorf("missing or invalid provider attribute")
 	}
 	provider, err := did.Parse(providerAttr.Value)
 	if err != nil {
-		return replica.ReplicaRecord{}, fmt.Errorf("parsing provider DID: %w", err)
+		return replica.Record{}, fmt.Errorf("parsing provider DID: %w", err)
 	}
 
 	statusAttr, ok := item["status"].(*types.AttributeValueMemberS)
 	if !ok {
-		return replica.ReplicaRecord{}, fmt.Errorf("missing or invalid status attribute")
+		return replica.Record{}, fmt.Errorf("missing or invalid status attribute")
 	}
 	status, err := parseStatus(statusAttr.Value)
 	if err != nil {
-		return replica.ReplicaRecord{}, err
+		return replica.Record{}, err
 	}
 
 	causeAttr, ok := item["cause"].(*types.AttributeValueMemberS)
 	if !ok {
-		return replica.ReplicaRecord{}, fmt.Errorf("missing or invalid cause attribute")
+		return replica.Record{}, fmt.Errorf("missing or invalid cause attribute")
 	}
 	cause, err := cid.Parse(causeAttr.Value)
 	if err != nil {
-		return replica.ReplicaRecord{}, fmt.Errorf("parsing cause CID: %w", err)
+		return replica.Record{}, fmt.Errorf("parsing cause CID: %w", err)
 	}
 
-	rec := replica.ReplicaRecord{
+	rec := replica.Record{
 		Space:    space,
 		Digest:   digest,
 		Provider: provider,

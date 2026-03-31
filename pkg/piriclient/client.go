@@ -15,45 +15,44 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	fdm "github.com/storacha/go-ucanto/core/result/failure/datamodel"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
+	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 )
 
 // DelegationFetcher provides an interface for fetching delegation proofs on-demand.
 type DelegationFetcher interface {
-	// GetDelegation fetches the delegation proof for the given provider DID.
+	// GetDelegation fetches the delegation proof for the given audience.
 	// Returns nil if no delegation is available (not an error condition).
-	GetDelegation(ctx context.Context, providerDID string) (delegation.Delegation, error)
+	GetDelegation(ctx context.Context, audience ucan.Principal) (delegation.Delegation, error)
 }
 
 // Client is a UCAN client for communicating with Piri nodes.
 type Client struct {
-	endpoint          *url.URL
-	piriDID           did.DID
-	signer            principal.Signer
-	connection        uclient.Connection
-	delegationFetcher DelegationFetcher
-	logger            *zap.Logger
+	piriDID    did.DID
+	signer     ucan.Signer
+	connection uclient.Connection
+	logger     *zap.Logger
 }
 
 // New creates a new Piri client.
 // The delegationFetcher is used to fetch delegation proofs on-demand for each request.
-func New(endpoint *url.URL, piriDID did.DID, signer principal.Signer, fetcher DelegationFetcher, logger *zap.Logger) (*Client, error) {
+func New(endpoint *url.URL, piriDID did.DID, signer ucan.Signer, logger *zap.Logger) (*Client, error) {
 	channel := ucanhttp.NewChannel(endpoint)
 	conn, err := uclient.NewConnection(piriDID, channel)
 	if err != nil {
 		return nil, fmt.Errorf("creating connection: %w", err)
 	}
+	return NewWithConnection(piriDID, signer, conn, logger), nil
+}
 
+func NewWithConnection(piriDID did.DID, signer ucan.Signer, conn uclient.Connection, logger *zap.Logger) *Client {
 	return &Client{
-		endpoint:          endpoint,
-		piriDID:           piriDID,
-		signer:            signer,
-		connection:        conn,
-		delegationFetcher: fetcher,
-		logger:            logger,
-	}, nil
+		piriDID:    piriDID,
+		signer:     signer,
+		connection: conn,
+		logger:     logger,
+	}
 }
 
 // AllocateRequest contains the parameters for a blob/allocate invocation.
@@ -71,12 +70,12 @@ type AllocateResponse struct {
 }
 
 // fetchDelegationOpts fetches the delegation proof and returns delegation options.
-func (c *Client) fetchDelegationOpts(ctx context.Context) ([]delegation.Option, error) {
+func (c *Client) fetchDelegationOpts(ctx context.Context, fetcher DelegationFetcher) ([]delegation.Option, error) {
 	var opts []delegation.Option
 
-	if c.delegationFetcher != nil {
+	if fetcher != nil {
 		c.logger.Debug("fetching delegation", zap.String("piriDID", c.piriDID.String()))
-		proof, err := c.delegationFetcher.GetDelegation(ctx, c.piriDID.String())
+		proof, err := fetcher.GetDelegation(ctx, c.signer)
 		if err != nil {
 			c.logger.Error("delegation fetch error", zap.Error(err))
 			return nil, fmt.Errorf("fetching delegation: %w", err)
@@ -98,9 +97,9 @@ func (c *Client) fetchDelegationOpts(ctx context.Context) ([]delegation.Option, 
 
 // Allocate sends a blob/allocate invocation to the piri node.
 // Returns the response data, the invocation that was sent, and the receipt from piri.
-func (c *Client) Allocate(ctx context.Context, req *AllocateRequest) (*AllocateResponse, invocation.Invocation, receipt.AnyReceipt, error) {
+func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher DelegationFetcher) (*AllocateResponse, invocation.Invocation, receipt.AnyReceipt, error) {
 	// Fetch delegation fresh for each request
-	opts, err := c.fetchDelegationOpts(ctx)
+	opts, err := c.fetchDelegationOpts(ctx, fetcher)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -209,8 +208,8 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest) (*AllocateR
 }
 
 // AllocateInvocation returns the invocation for the allocate request (for use in effects).
-func (c *Client) AllocateInvocation(ctx context.Context, req *AllocateRequest) (invocation.IssuedInvocation, error) {
-	opts, err := c.fetchDelegationOpts(ctx)
+func (c *Client) AllocateInvocation(ctx context.Context, req *AllocateRequest, fetcher DelegationFetcher) (invocation.IssuedInvocation, error) {
+	opts, err := c.fetchDelegationOpts(ctx, fetcher)
 	if err != nil {
 		return nil, err
 	}
@@ -250,11 +249,11 @@ type AcceptResponse struct {
 }
 
 // Accept sends a blob/accept invocation to the piri node.
-func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptResponse, receipt.AnyReceipt, error) {
+func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher DelegationFetcher) (*AcceptResponse, invocation.Invocation, receipt.AnyReceipt, error) {
 	// Fetch delegation fresh for each request
-	opts, err := c.fetchDelegationOpts(ctx)
+	opts, err := c.fetchDelegationOpts(ctx, fetcher)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Use WithNoExpiration so the invocation CID is deterministic and matches
@@ -280,7 +279,7 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 		opts...,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating accept invocation: %w", err)
+		return nil, nil, nil, fmt.Errorf("creating accept invocation: %w", err)
 	}
 
 	// Log invocation details
@@ -301,20 +300,20 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 	// Execute the invocation
 	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
 	if err != nil {
-		return nil, nil, fmt.Errorf("executing accept invocation: %w", err)
+		return nil, nil, nil, fmt.Errorf("executing accept invocation: %w", err)
 	}
 
 	// Get the receipt
 	rcptLink, ok := resp.Get(inv.Link())
 	if !ok {
-		return nil, nil, fmt.Errorf("receipt not found for invocation")
+		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
 	}
 
 	// Read the receipt using the any reader
 	anyReader := receipt.NewAnyReceiptReader(captypes.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading receipt: %w", err)
+		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
 	}
 
 	// Check for error response
@@ -336,10 +335,10 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 		if errDetails == "" {
 			errDetails = "unknown error"
 		}
-		return nil, nil, fmt.Errorf("accept failed: %s", errDetails)
+		return nil, nil, nil, fmt.Errorf("accept failed: %s", errDetails)
 	}
 	if okNode == nil {
-		return nil, nil, fmt.Errorf("accept returned nil result")
+		return nil, nil, nil, fmt.Errorf("accept returned nil result")
 	}
 
 	// Extract the site link from the ok node
@@ -352,5 +351,34 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest) (*AcceptRespons
 
 	return &AcceptResponse{
 		Site: site,
-	}, anyRcpt, nil
+	}, inv, anyRcpt, nil
+}
+
+// AcceptInvocation returns the invocation for the accept request (for use in effects).
+func (c *Client) AcceptInvocation(ctx context.Context, req *AcceptRequest, fetcher DelegationFetcher) (invocation.IssuedInvocation, error) {
+	opts, err := c.fetchDelegationOpts(ctx, fetcher)
+	if err != nil {
+		return nil, err
+	}
+
+	opts = append(opts, delegation.WithNoExpiration())
+	return blobcap.Accept.Invoke(
+		c.signer,
+		c.piriDID,
+		c.piriDID.String(),
+		blobcap.AcceptCaveats{
+			Space: req.Space,
+			Blob: captypes.Blob{
+				Digest: req.Digest,
+				Size:   req.Size,
+			},
+			Put: blobcap.Promise{
+				UcanAwait: blobcap.Await{
+					Selector: ".out.ok",
+					Link:     req.Put,
+				},
+			},
+		},
+		opts...,
+	)
 }

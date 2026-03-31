@@ -38,8 +38,8 @@ func WithListCursor(cursor string) ListOption {
 	}
 }
 
-type StorageProviderRecord struct {
-	// DID of the stroage provider.
+type Record struct {
+	// DID of the storage provider.
 	Provider did.DID
 	// Public URL that accepts UCAN invocations.
 	Endpoint url.URL
@@ -50,7 +50,7 @@ type StorageProviderRecord struct {
 	Weight int
 	// ReplicationWeight determines the chance of selection for replications
 	// relative to other providers. Defaults to weight if not set.
-	ReplicationWeight int
+	ReplicationWeight *int
 	// Date and time the record was created (ISO 8601).
 	InsertedAt time.Time
 	// Date and time the record was last updated (ISO 8601).
@@ -58,12 +58,12 @@ type StorageProviderRecord struct {
 }
 
 type Store interface {
-	Put(ctx context.Context, providerID did.DID, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight int) error
+	Put(ctx context.Context, providerID did.DID, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error
 	// Get a storage provider record by provider DID. May return
 	// [ErrStorageProviderNotFound].
-	Get(ctx context.Context, providerID did.DID) (StorageProviderRecord, error)
+	Get(ctx context.Context, providerID did.DID) (Record, error)
 	// Delete a storage provider record by provider DID. May return
 	// [ErrStorageProviderNotFound] if the record does not exist.
 	Delete(ctx context.Context, providerID did.DID) error
-	List(ctx context.Context, options ...ListOption) (store.Page[StorageProviderRecord], error)
+	List(ctx context.Context, options ...ListOption) (store.Page[Record], error)
 }

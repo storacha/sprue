@@ -616,12 +616,8 @@ github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3A
 github.com/spf13/viper v1.8.1/go.mod h1:o0Pch8wJ9BVSWGQMbra6iw0oQ5oktSIBaujf1rJH9Ns=
 github.com/spf13/viper v1.21.0 h1:x5S+0EU27Lbphp4UKm1C+1oQO+rKx36vfCoaVebLFSU=
 github.com/spf13/viper v1.21.0/go.mod h1:P0lhsswPGWD/1lZJ9ny3fYnVqxiegrlNrEmgLjbTCAY=
-github.com/storacha/go-capabilities v0.0.0-20250604155856-9e5efefb7de0 h1:1R3/PYdJpRXXkaJiH6OVMZiY5PixohroIC9GXKD+Dmk=
-github.com/storacha/go-capabilities v0.0.0-20250604155856-9e5efefb7de0/go.mod h1:4H6F2KwMP5RbeR7OXwtmFRdftqTzMVFbX3ie/YDRePo=
 github.com/storacha/go-libstoracha v0.7.5 h1:zfRbku2RXxbH0uNWnpGQyJqafiJ+uCGs3tMmkHgZ/QE=
 github.com/storacha/go-libstoracha v0.7.5/go.mod h1:htUh/VZ0qHRLPJKWZsgXv9mCOqlAFGTVS//ApvQVNf0=
-github.com/storacha/go-piece v0.0.0-20241102032446-a7c497f05d55 h1:ABw9NOKkodPOWFpQteAI1ImNaHtsxnPtz6sAUhU/HLA=
-github.com/storacha/go-piece v0.0.0-20241102032446-a7c497f05d55/go.mod h1:lV3s4aCpSZn9srVjfDTsIAqx3MbO8Y/7JH2M/esSZcM=
 github.com/storacha/go-ucanto v0.7.2 h1:sLg+swDM/6VEcrb9VOik3hP8ek3NvqqKWiZRmsva5X0=
 github.com/storacha/go-ucanto v0.7.2/go.mod h1:DZlWyzuSkXk3phAuJpGDyhxYWpJogW1RFqp/VfldT64=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
