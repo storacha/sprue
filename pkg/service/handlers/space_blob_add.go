@@ -14,7 +14,6 @@ import (
 	httpcap "github.com/storacha/go-libstoracha/capabilities/http"
 	spaceblobcap "github.com/storacha/go-libstoracha/capabilities/space/blob"
 	"github.com/storacha/go-libstoracha/capabilities/types"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
 	"github.com/storacha/go-libstoracha/digestutil"
 	"github.com/storacha/go-ucanto/core/car"
@@ -128,8 +127,8 @@ func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, nodePro
 		fx := fx.NewEffects(fx.WithFork(forks...))
 
 		return result.Ok[spaceblobcap.AddOk, failure.IPLDBuilderFailure](spaceblobcap.AddOk{
-			Site: captypes.Promise{
-				UcanAwait: captypes.Await{
+			Site: types.Promise{
+				UcanAwait: types.Await{
 					Selector: ".out.ok.site",
 					Link:     accInv.Link(),
 				},
@@ -277,14 +276,14 @@ func genPut(blob types.Blob, allocInv invocation.Invocation, allocOK blobcap.All
 		blobProvider,
 		blobProvider.DID().String(),
 		httpcap.PutCaveats{
-			URL: captypes.Promise{
-				UcanAwait: captypes.Await{
+			URL: types.Promise{
+				UcanAwait: types.Await{
 					Selector: ".out.ok.address.url",
 					Link:     allocInv.Link(),
 				},
 			},
-			Headers: captypes.Promise{
-				UcanAwait: captypes.Await{
+			Headers: types.Promise{
+				UcanAwait: types.Await{
 					Selector: ".out.ok.address.headers",
 					Link:     allocInv.Link(),
 				},
