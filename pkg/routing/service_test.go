@@ -1,31 +1,24 @@
-package routing
+package routing_test
 
 import (
-	"context"
 	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/sprue/internal/testutil"
+	"github.com/storacha/sprue/pkg/routing"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
 	spmemory "github.com/storacha/sprue/pkg/store/storage_provider/memory"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
 )
-
-func mustURL(t *testing.T, raw string) url.URL {
-	t.Helper()
-	u, err := url.Parse(raw)
-	require.NoError(t, err)
-	return *u
-}
 
 func addProvider(t *testing.T, store *spmemory.Store, weight int, replicationWeight *int) storageprovider.Record {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	id := testutil.RandomSigner(t)
-	endpoint := mustURL(t, "https://"+strings.TrimPrefix(id.DID().String(), "did:key:")+".example.com")
-	err := store.Put(ctx, id.DID(), endpoint, nil, weight, replicationWeight)
+	endpoint := testutil.Must(url.Parse("https://piri.example.com"))(t)
+	err := store.Put(ctx, id.DID(), *endpoint, nil, weight, replicationWeight)
 	require.NoError(t, err)
 	rec, err := store.Get(ctx, id.DID())
 	require.NoError(t, err)
@@ -33,12 +26,13 @@ func addProvider(t *testing.T, store *spmemory.Store, weight int, replicationWei
 }
 
 func TestGetProviderInfo(t *testing.T) {
-	ctx := context.Background()
+	logger := zaptest.NewLogger(t)
+	ctx := t.Context()
 
 	t.Run("found", func(t *testing.T) {
 		store := spmemory.New()
 		rec := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		info, err := svc.GetProviderInfo(ctx, rec.Provider)
 		require.NoError(t, err)
@@ -48,7 +42,7 @@ func TestGetProviderInfo(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		store := spmemory.New()
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 		unknown := testutil.RandomSigner(t)
 
 		_, err := svc.GetProviderInfo(ctx, unknown)
@@ -57,21 +51,22 @@ func TestGetProviderInfo(t *testing.T) {
 }
 
 func TestSelectStorageProvider(t *testing.T) {
-	ctx := context.Background()
+	logger := zaptest.NewLogger(t)
+	ctx := t.Context()
 	blob := types.Blob{Size: 1024}
 
 	t.Run("no providers", func(t *testing.T) {
 		store := spmemory.New()
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		_, err := svc.SelectStorageProvider(ctx, blob)
-		require.ErrorIs(t, err, ErrCandidateUnavailable)
+		require.ErrorIs(t, err, routing.ErrCandidateUnavailable)
 	})
 
 	t.Run("single provider", func(t *testing.T) {
 		store := spmemory.New()
 		rec := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		info, err := svc.SelectStorageProvider(ctx, blob)
 		require.NoError(t, err)
@@ -81,21 +76,21 @@ func TestSelectStorageProvider(t *testing.T) {
 	t.Run("excludes zero weight providers", func(t *testing.T) {
 		store := spmemory.New()
 		addProvider(t, store, 0, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		_, err := svc.SelectStorageProvider(ctx, blob)
-		require.ErrorIs(t, err, ErrCandidateUnavailable)
+		require.ErrorIs(t, err, routing.ErrCandidateUnavailable)
 	})
 
 	t.Run("with exclusions", func(t *testing.T) {
 		store := spmemory.New()
 		excluded := addProvider(t, store, 100, nil)
 		kept := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		// Run multiple times to verify excluded provider is never selected
 		for range 20 {
-			info, err := svc.SelectStorageProvider(ctx, blob, WithExclusions(excluded.Provider))
+			info, err := svc.SelectStorageProvider(ctx, blob, routing.WithExclusions(excluded.Provider))
 			require.NoError(t, err)
 			require.Equal(t, kept.Provider, info.ID)
 		}
@@ -104,17 +99,17 @@ func TestSelectStorageProvider(t *testing.T) {
 	t.Run("all providers excluded", func(t *testing.T) {
 		store := spmemory.New()
 		p := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
-		_, err := svc.SelectStorageProvider(ctx, blob, WithExclusions(p.Provider))
-		require.ErrorIs(t, err, ErrCandidateUnavailable)
+		_, err := svc.SelectStorageProvider(ctx, blob, routing.WithExclusions(p.Provider))
+		require.ErrorIs(t, err, routing.ErrCandidateUnavailable)
 	})
 
 	t.Run("selects from multiple providers", func(t *testing.T) {
 		store := spmemory.New()
 		p1 := addProvider(t, store, 100, nil)
 		p2 := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		seen := map[string]bool{}
 		for range 100 {
@@ -129,14 +124,15 @@ func TestSelectStorageProvider(t *testing.T) {
 }
 
 func TestSelectReplicationProvider(t *testing.T) {
-	ctx := context.Background()
+	logger := zaptest.NewLogger(t)
+	ctx := t.Context()
 	blob := types.Blob{Size: 1024}
 
 	t.Run("excludes primary", func(t *testing.T) {
 		store := spmemory.New()
 		primary := addProvider(t, store, 100, nil)
 		secondary := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		for range 20 {
 			info, err := svc.SelectReplicationProvider(ctx, primary.Provider, blob)
@@ -148,10 +144,10 @@ func TestSelectReplicationProvider(t *testing.T) {
 	t.Run("no candidates after excluding primary", func(t *testing.T) {
 		store := spmemory.New()
 		primary := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		_, err := svc.SelectReplicationProvider(ctx, primary.Provider, blob)
-		require.ErrorIs(t, err, ErrCandidateUnavailable)
+		require.ErrorIs(t, err, routing.ErrCandidateUnavailable)
 	})
 
 	t.Run("excludes zero replication weight", func(t *testing.T) {
@@ -160,7 +156,7 @@ func TestSelectReplicationProvider(t *testing.T) {
 		zeroRW := 0
 		addProvider(t, store, 100, &zeroRW)
 		good := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		for range 20 {
 			info, err := svc.SelectReplicationProvider(ctx, primary.Provider, blob)
@@ -174,7 +170,7 @@ func TestSelectReplicationProvider(t *testing.T) {
 		primary := addProvider(t, store, 100, nil)
 		rw := 50
 		replica := addProvider(t, store, 100, &rw)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		info, err := svc.SelectReplicationProvider(ctx, primary.Provider, blob)
 		require.NoError(t, err)
@@ -186,10 +182,10 @@ func TestSelectReplicationProvider(t *testing.T) {
 		primary := addProvider(t, store, 100, nil)
 		excluded := addProvider(t, store, 100, nil)
 		keeper := addProvider(t, store, 100, nil)
-		svc := NewService(store)
+		svc := routing.NewService(store, logger)
 
 		for range 20 {
-			info, err := svc.SelectReplicationProvider(ctx, primary.Provider, blob, WithExclusions(excluded.Provider))
+			info, err := svc.SelectReplicationProvider(ctx, primary.Provider, blob, routing.WithExclusions(excluded.Provider))
 			require.NoError(t, err)
 			require.Equal(t, keeper.Provider, info.ID)
 		}

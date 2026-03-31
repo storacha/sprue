@@ -7,11 +7,13 @@ import (
 	"slices"
 
 	"github.com/storacha/go-libstoracha/capabilities/types"
+	"github.com/storacha/go-libstoracha/digestutil"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
+	"go.uber.org/zap"
 )
 
 const CandidateUnavailableErrorName = "CandidateUnavailable"
@@ -47,11 +49,13 @@ type StorageProviderInfo struct {
 
 type Service struct {
 	storageProviderStore storageprovider.Store
+	logger               *zap.Logger
 }
 
-func NewService(storageProviderStore storageprovider.Store) *Service {
+func NewService(storageProviderStore storageprovider.Store, logger *zap.Logger) *Service {
 	return &Service{
 		storageProviderStore: storageProviderStore,
+		logger:               logger,
 	}
 }
 
@@ -77,14 +81,27 @@ func (s *Service) SelectStorageProvider(ctx context.Context, blob types.Blob, op
 	for _, option := range options {
 		option(cfg)
 	}
+	log := s.logger.With(
+		zap.Dict(
+			"blob",
+			zap.String("digest", digestutil.Format(blob.Digest)),
+			zap.Uint64("size", blob.Size),
+		),
+	)
+	log.Debug("selecting storage provider")
 
 	candidates, err := listProviders(ctx, s.storageProviderStore)
 	if err != nil {
+		log.Error("failed to list storage providers", zap.Error(err))
 		return StorageProviderInfo{}, err
 	}
+
+	total := len(candidates)
+
 	candidates = filterExcludedProviders(candidates, cfg.exclusions)
 	candidates = filterZeroWeightProviders(candidates)
 	if len(candidates) == 0 {
+		log.Warn("no candidates available after filters applied", zap.Int("total", total))
 		return StorageProviderInfo{}, ErrCandidateUnavailable
 	}
 

@@ -43,17 +43,17 @@ import (
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 )
 
-func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
+func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceblobcap.AddAbility,
 		server.Provide(
 			spaceblobcap.Add,
-			SpaceBlobAddHandler(id, router, agentStore, blobRegistry, logger),
+			SpaceBlobAddHandler(id, router, nodeProvider, agentStore, blobRegistry, logger),
 		),
 	)
 }
 
-func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[spaceblobcap.AddCaveats, spaceblobcap.AddOk, failure.IPLDBuilderFailure] {
+func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[spaceblobcap.AddCaveats, spaceblobcap.AddOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", spaceblobcap.AddAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[spaceblobcap.AddCaveats],
@@ -65,8 +65,11 @@ func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, agentSt
 
 		log := log.With(
 			zap.String("space", cap.With()),
-			zap.String("digest", b58digest),
-			zap.Uint64("size", blob.Size),
+			zap.Dict(
+				"blob",
+				zap.String("digest", b58digest),
+				zap.Uint64("size", blob.Size),
+			),
 		)
 		log.Debug("adding blob")
 
@@ -77,7 +80,7 @@ func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, agentSt
 			), nil, nil
 		}
 
-		provider, allocInv, allocRcpt, allocOK, err := doAllocate(ctx, id.Signer, router, agentStore, space, blob, inv.Link(), log)
+		provider, allocInv, allocRcpt, allocOK, err := doAllocate(ctx, router, nodeProvider, agentStore, space, blob, inv.Link(), log)
 		if err != nil {
 			if errors.Is(err, routing.ErrCandidateUnavailable) {
 				return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
@@ -95,7 +98,7 @@ func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, agentSt
 			return nil, nil, fmt.Errorf("generating put invocation: %w", err)
 		}
 
-		accInv, accRcpt, err := maybeAccept(ctx, id.Signer, agentStore, blobRegistry, provider, space, blob, putInv, putRcpt, log)
+		accInv, accRcpt, err := maybeAccept(ctx, agentStore, blobRegistry, nodeProvider, provider, space, blob, putInv, putRcpt, log)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -169,14 +172,17 @@ type delegationFetcher struct {
 // delegation to authorize allocate and accept calls to the storage provider.
 // This removes the need for storage providers to grant love lived delegations
 // to the upload service. We will fix this in UCAN 1.0.
-func (df delegationFetcher) GetDelegation(ctx context.Context, providerDID string) (delegation.Delegation, error) {
+func (df delegationFetcher) GetDelegation(ctx context.Context, audience ucan.Principal) (delegation.Delegation, error) {
+	if df.proof.Audience().DID() != audience.DID() {
+		return nil, fmt.Errorf("delegation audience is %s, but invocation requires proof with audience %s", df.proof.Audience().DID(), audience.DID())
+	}
 	return df.proof, nil
 }
 
 func doAllocate(
 	ctx context.Context,
-	id ucan.Signer,
 	router *routing.Service,
+	nodeProvider piriclient.Provider,
 	agentStore agent.Store,
 	space did.DID,
 	blob types.Blob,
@@ -194,9 +200,9 @@ func doAllocate(
 			return routing.StorageProviderInfo{}, nil, nil, blobcap.AllocateOk{}, err
 		}
 		log := logger.With(zap.Stringer("candidate", candidate.ID.DID()), zap.String("endpoint", candidate.Endpoint.String()))
-		log.Info("selected storage provider candidate")
+		log.Debug("selected storage provider candidate")
 
-		client, err := piriclient.New(&candidate.Endpoint, candidate.ID.DID(), id, delegationFetcher{candidate.Proof}, logger)
+		client, err := nodeProvider.Client(candidate.ID, candidate.Endpoint)
 		if err != nil {
 			log.Error("failed to create piri node", zap.Error(err))
 			return routing.StorageProviderInfo{}, nil, nil, blobcap.AllocateOk{}, err
@@ -207,7 +213,7 @@ func doAllocate(
 			Digest: blob.Digest,
 			Size:   blob.Size,
 			Cause:  cause,
-		})
+		}, delegationFetcher{candidate.Proof})
 		if err != nil {
 			log.Warn("failed to allocate blob", zap.Error(err))
 			exclusions = append(exclusions, candidate.ID)
@@ -326,17 +332,17 @@ func deriveDID(digest multihash.Multihash) (principal.Signer, error) {
 	}
 	seed := digest[len(digest)-32:]
 	pk := ed25519.NewKeyFromSeed(seed)
-	return ed25519signer.FromRaw(pk[:ed25519.SeedSize])
+	return ed25519signer.FromRaw(pk)
 }
 
 // maybeAccept generates and possibly executes a `/blob/accept` invocation if
 // the provided put receipt is non-nil and non-failure.
 func maybeAccept(
 	ctx context.Context,
-	id principal.Signer,
 	agentStore agent.Store,
 	blobRegistry blobregistry.Store,
-	provider routing.StorageProviderInfo,
+	nodeProvider piriclient.Provider,
+	providerInfo routing.StorageProviderInfo,
 	space ucan.Principal,
 	blob types.Blob,
 	putInv invocation.Invocation,
@@ -346,7 +352,7 @@ func maybeAccept(
 	log := logger
 	log.Debug("generating accept invocation")
 
-	c, err := piriclient.New(&provider.Endpoint, provider.ID.DID(), id, delegationFetcher{provider.Proof}, logger)
+	c, err := nodeProvider.Client(providerInfo.ID, providerInfo.Endpoint)
 	if err != nil {
 		log.Error("failed to create piri client for accept", zap.Error(err))
 		return nil, nil, err
@@ -359,7 +365,7 @@ func maybeAccept(
 		Put:    putInv.Link(),
 	}
 
-	accInv, err := c.AcceptInvocation(ctx, &accReq)
+	accInv, err := c.AcceptInvocation(ctx, &accReq, delegationFetcher{providerInfo.Proof})
 	if err != nil {
 		log.Error("failed to create accept invocation", zap.Error(err))
 		return nil, nil, err
@@ -371,13 +377,7 @@ func maybeAccept(
 	if putRcpt != nil {
 		_, x := result.Unwrap(putRcpt.Out())
 		if x == nil {
-			c, err := piriclient.New(&provider.Endpoint, provider.ID.DID(), id, delegationFetcher{provider.Proof}, logger)
-			if err != nil {
-				log.Error("failed to create piri client for accept", zap.Error(err))
-				return nil, nil, err
-			}
-
-			res, inv, rcpt, err := c.Accept(ctx, &accReq)
+			res, inv, rcpt, err := c.Accept(ctx, &accReq, delegationFetcher{providerInfo.Proof})
 			if err != nil {
 				log.Error("failed to execute accept on piri", zap.Error(err))
 				return nil, nil, err

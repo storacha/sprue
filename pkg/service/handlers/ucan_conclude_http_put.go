@@ -14,7 +14,6 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure/datamodel"
 	"github.com/storacha/go-ucanto/validator"
-	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
 	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/piriclient"
@@ -25,8 +24,8 @@ import (
 )
 
 func NewHTTPPutConcludeHandler(
-	id *identity.Identity,
 	router *routing.Service,
+	nodeProvider piriclient.Provider,
 	agentStore agent.Store,
 	blobRegistry blobregistry.Store,
 	logger *zap.Logger,
@@ -80,7 +79,7 @@ func NewHTTPPutConcludeHandler(
 				return fmt.Errorf("getting storage provider info: %w", err)
 			}
 
-			client, err := piriclient.New(&info.Endpoint, info.ID.DID(), id.Signer, delegationFetcher{info.Proof}, logger)
+			client, err := nodeProvider.Client(info.ID, info.Endpoint)
 			if err != nil {
 				log.Error("failed to create piri node", zap.Error(err))
 				return fmt.Errorf("creating client: %w", err)
@@ -91,7 +90,7 @@ func NewHTTPPutConcludeHandler(
 				Digest: allocNb.Blob.Digest,
 				Size:   allocNb.Blob.Size,
 				Put:    putInv.Link(),
-			})
+			}, delegationFetcher{info.Proof})
 			if err != nil {
 				log.Error("failed to execute blob/accept", zap.Error(err))
 				return fmt.Errorf("executing blob/accept: %w", err)
