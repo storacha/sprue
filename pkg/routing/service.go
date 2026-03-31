@@ -193,9 +193,9 @@ func weightedRandomInt(weights []uint64) int {
 	for _, weight := range weights {
 		totalWeight += weight
 	}
-	random := uint64(rand.Int63n(int64(totalWeight)))
+	random := rand.Int63n(int64(totalWeight))
 	for i, weight := range weights {
-		random -= weight
+		random -= int64(weight)
 		if random <= 0 {
 			return i
 		}
