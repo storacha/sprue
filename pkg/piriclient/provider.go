@@ -12,7 +12,7 @@ type Provider interface {
 	Client(id ucan.Principal, endpoint url.URL) (*Client, error)
 }
 
-// PiriProvider is the default NodeProvider that creates HTTP-connected piri clients.
+// PiriProvider is the default Provider that creates HTTP-connected piri clients.
 type PiriProvider struct {
 	signer ucan.Signer
 	logger *zap.Logger
