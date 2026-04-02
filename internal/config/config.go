@@ -26,6 +26,10 @@ type DeploymentConfig struct {
 	// to provision a space without an active payment plan. It should only be true
 	// in development or testing environments.
 	AllowProvisionWithoutPaymentPlan bool `mapstructure:"allow_provision_without_payment_plan"`
+	// MaxReplicas is the maximum number of replicas that can be allocated for a
+	// given blob. It includes the original blob that was uploaded, so only values
+	// above 1 will allow users to have multiple copies of their data.
+	MaxReplicas uint `mapstructure:"max_replicas"`
 }
 
 // ServerConfig holds HTTP server settings.
