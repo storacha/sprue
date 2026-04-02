@@ -1,0 +1,34 @@
+type RegisterCaveats struct {
+  provider DID
+  endpoint String
+  proof    Link
+}
+
+type RegisterOk struct {}
+
+type DeregisterCaveats struct {
+  provider DID
+}
+
+type DeregisterOk struct {}
+
+type ListCaveats struct {}
+
+type Provider struct {
+  id DID
+  endpoint String
+  weight Int
+  replicationWeight Int
+}
+
+type ListOk struct {
+  providers [Provider]
+}
+
+type WeightSetCaveats struct {
+  provider DID
+  weight Int
+  replicationWeight Int
+}
+
+type WeightSetOk struct {}
