@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 
+	"github.com/storacha/sprue/cmd/client"
 	appfx "github.com/storacha/sprue/internal/fx"
 )
 
@@ -27,6 +28,7 @@ Routes blob allocations to Piri nodes and tracks upload state in DynamoDB.`,
 	}
 
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(client.Cmd)
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file path (default: looks for config.yaml in current dir)")
