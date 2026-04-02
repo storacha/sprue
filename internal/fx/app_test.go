@@ -43,15 +43,8 @@ func TestWireApp(t *testing.T) {
 			Endpoint: "http://localhost:3000",
 		},
 		DynamoDB: config.DynamoDBConfig{
-			Region:             "us-east-1",
-			Endpoint:           dynamoEndpoint.String(),
-			ProviderTable:      "provider-" + appID,
-			AllocationsTable:   "allocations-" + appID,
-			ReceiptsTable:      "receipts-" + appID,
-			AuthRequestsTable:  "auth-requests-" + appID,
-			ProvisioningsTable: "provisionings-" + appID,
-			UploadsTable:       "uploads-" + appID,
-			// w3infra tables
+			Region:               "us-east-1",
+			Endpoint:             dynamoEndpoint.String(),
 			AgentIndexTable:      "agent-index-" + appID,
 			BlobRegistryTable:    "blob-registry-" + appID,
 			ConsumerTable:        "consumer-" + appID,

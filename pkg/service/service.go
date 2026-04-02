@@ -31,7 +31,6 @@ import (
 	"github.com/storacha/sprue/pkg/lib/ucans"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	"github.com/storacha/sprue/pkg/service/ui"
-	"github.com/storacha/sprue/pkg/state"
 	"github.com/storacha/sprue/pkg/store/agent"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )
@@ -39,7 +38,6 @@ import (
 // Service implements the sprue upload service logic.
 type Service struct {
 	identity        *identity.Identity
-	state           state.StateStore
 	agentStore      agent.Store
 	delegationStore delegation_store.Store
 	indexerClient   *indexerclient.Client
@@ -49,10 +47,9 @@ type Service struct {
 }
 
 // New creates a new Service instance.
-func New(id *identity.Identity, store state.StateStore, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
+func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
 	svc := &Service{
 		identity:        id,
-		state:           store,
 		agentStore:      agentStore,
 		delegationStore: delegationStore,
 		indexerClient:   indexerClient,

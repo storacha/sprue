@@ -74,24 +74,6 @@ type DynamoDBConfig struct {
 	// Region is the AWS region for DynamoDB.
 	Region string `mapstructure:"region"`
 
-	// ProviderTable is the table name for provider info.
-	ProviderTable string `mapstructure:"provider_table"`
-
-	// AllocationsTable is the table name for blob allocations.
-	AllocationsTable string `mapstructure:"allocations_table"`
-
-	// ReceiptsTable is the table name for UCAN receipts.
-	ReceiptsTable string `mapstructure:"receipts_table"`
-
-	// AuthRequestsTable is the table name for auth requests.
-	AuthRequestsTable string `mapstructure:"auth_requests_table"`
-
-	// ProvisioningsTable is the table name for space provisionings.
-	ProvisioningsTable string `mapstructure:"provisionings_table"`
-
-	// UploadsTable is the table name for uploads.
-	UploadsTable string `mapstructure:"uploads_table"`
-
 	AgentIndexTable      string `mapstructure:"agent_index_table"`
 	BlobRegistryTable    string `mapstructure:"blob_registry_table"`
 	ConsumerTable        string `mapstructure:"consumer_table"`
