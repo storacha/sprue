@@ -190,9 +190,30 @@ func SpaceBlobReplicateHandler(
 			site := cap.Nb().Site
 			lComm, location, err := extractLocationCommitment(space, blob.Digest, site, blocks)
 			if err != nil {
-				log.Error("failed to extract location commitment", zap.Stringer("site", site), zap.Error(err))
+				log.Warn("failed to extract location commitment", zap.Stringer("site", site), zap.Error(err))
 				return result.Error[spaceblobcap.ReplicateOk, failure.IPLDBuilderFailure](
-					errors.New(InvalidReplicationSiteErrorName, "invalid location commitment: %v", err),
+					errors.New(InvalidReplicationSiteErrorName, "invalid location commitment: %s", err.Error()),
+				), nil, nil
+			}
+			_, err = validator.Claim(
+				ctx,
+				assert.Location,
+				[]delegation.Proof{delegation.FromDelegation(lComm)},
+				validator.NewClaimContext(
+					id.Signer.Verifier(),
+					iCtx.CanIssue,
+					iCtx.ValidateAuthorization,
+					iCtx.ResolveProof,
+					iCtx.ParsePrincipal,
+					iCtx.ResolveDIDKey,
+					iCtx.ValidateTimeBounds,
+					iCtx.AuthorityProofs()...,
+				),
+			)
+			if err != nil {
+				log.Warn("failed to authorize location commitment", zap.Stringer("site", site), zap.Error(err))
+				return result.Error[spaceblobcap.ReplicateOk, failure.IPLDBuilderFailure](
+					errors.New(InvalidReplicationSiteErrorName, "unauthorized location commitment: %s", err.Error()),
 				), nil, nil
 			}
 

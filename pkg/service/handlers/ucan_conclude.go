@@ -25,7 +25,7 @@ import (
 
 const InvalidInvocationErrorName = "InvalidInvocation"
 
-type ConclusionHandlerFunc func(context.Context, invocation.Invocation, receipt.AnyReceipt) error
+type ConclusionHandlerFunc func(context.Context, invocation.Invocation, receipt.AnyReceipt, server.InvocationContext) error
 
 // ConclusionHandler is the definition of a handler for an invocation conclusion
 // - a receiver for a receipt attesting to an invocation result.
@@ -107,7 +107,7 @@ func UCANConcludeHandler(id *identity.Identity, agentStore agent.Store, handlers
 		log.Debug("found invocation for conclusion")
 
 		if handler, ok := handlers[ability]; ok {
-			err := handler(ctx, inv, rcpt)
+			err := handler(ctx, inv, rcpt, iCtx)
 			if err != nil {
 				log.Error("failed to conclude receipt", zap.Error(err))
 				return nil, nil, fmt.Errorf("concluding %q: %w", ability, err)

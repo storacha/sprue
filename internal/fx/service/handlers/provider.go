@@ -53,6 +53,10 @@ var Module = fx.Module("service-handlers",
 			handlers.NewHTTPPutConcludeHandler,
 			fx.ResultTags(`group:"ucan_conclude_handlers"`),
 		),
+		fx.Annotate(
+			handlers.NewBlobReplicaTransferConcludeHandler,
+			fx.ResultTags(`group:"ucan_conclude_handlers"`),
+		),
 		NewConcludeHandlers,
 	),
 )
