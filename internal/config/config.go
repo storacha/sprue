@@ -30,6 +30,11 @@ type DeploymentConfig struct {
 	// given blob. It includes the original blob that was uploaded, so only values
 	// above 1 will allow users to have multiple copies of their data.
 	MaxReplicas uint `mapstructure:"max_replicas"`
+	// InMemoryStores indicates whether to use in-memory stores instead of
+	// DynamoDB/S3. All data will be lost on service restart when this is true, so
+	// it should only be used for development or testing. It overrides all other
+	// store-related config when true.
+	InMemoryStores bool `mapstructure:"in_memory_stores"`
 }
 
 // ServerConfig holds HTTP server settings.
