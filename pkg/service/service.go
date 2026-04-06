@@ -233,11 +233,14 @@ func (s *Service) authorize(ctx context.Context, ucan string) (authorizationResu
 
 	var confirmDlgs []delegation.Delegation
 	for _, bytes := range o.Delegations.Values {
-		d, err := delegation.Extract(bytes)
+		dlgs, err := ucans.ExtractDelegations(bytes)
 		if err != nil {
-			return authorizationResult{}, fmt.Errorf("extracting delegation from confirmation result: %w", err)
+			return authorizationResult{}, fmt.Errorf("extracting delegations from confirmation result: %w", err)
 		}
-		confirmDlgs = append(confirmDlgs, d)
+		if len(dlgs) != 1 {
+			return authorizationResult{}, fmt.Errorf("unexpected number of delegations found in confirmation result")
+		}
+		confirmDlgs = append(confirmDlgs, dlgs[0])
 	}
 
 	ucan, err = ucans.FormatDelegations(confirmDlgs...)
