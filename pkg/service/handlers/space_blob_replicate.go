@@ -34,7 +34,7 @@ import (
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/store/agent"
-	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	"github.com/storacha/sprue/pkg/blobregistry"
 	"github.com/storacha/sprue/pkg/store/replica"
 )
 
@@ -61,7 +61,7 @@ func WithSpaceBlobReplicateMethod(
 	cfg config.DeploymentConfig,
 	id *identity.Identity,
 	router *routing.Service,
-	blobRegistry blobregistry.Store,
+	blobRegistry blobregistry.Service,
 	replicaStore replica.Store,
 	agentStore agent.Store,
 	storageNode piriclient.Provider,
@@ -80,7 +80,7 @@ func SpaceBlobReplicateHandler(
 	cfg config.DeploymentConfig,
 	id *identity.Identity,
 	router *routing.Service,
-	blobRegistry blobregistry.Store,
+	blobRegistry blobregistry.Service,
 	replicaStore replica.Store,
 	agentStore agent.Store,
 	storageNode piriclient.Provider,

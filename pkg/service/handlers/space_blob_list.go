@@ -14,20 +14,20 @@ import (
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/lib/errors"
-	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	"github.com/storacha/sprue/pkg/blobregistry"
 	"go.uber.org/zap"
 )
 
 // WithSpaceBlobListMethod registers the space/blob/list handler.
 // This handler lists the blobs of a space.
-func WithSpaceBlobListMethod(blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
+func WithSpaceBlobListMethod(blobRegistry blobregistry.Service, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		blob.ListAbility,
 		server.Provide(blob.List, SpaceBlobListHandler(blobRegistry, logger)),
 	)
 }
 
-func SpaceBlobListHandler(blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure] {
+func SpaceBlobListHandler(blobRegistry blobregistry.Service, logger *zap.Logger) server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", blob.ListAbility))
 	return server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure](
 		func(ctx context.Context,

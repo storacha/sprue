@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"github.com/storacha/sprue/pkg/blobregistry"
+	memblobregistrysvc "github.com/storacha/sprue/pkg/blobregistry/memory"
 	"github.com/storacha/sprue/pkg/store/agent"
 	memagent "github.com/storacha/sprue/pkg/store/agent/memory"
-	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	blobregistrystore "github.com/storacha/sprue/pkg/store/blob_registry"
 	memblobregistry "github.com/storacha/sprue/pkg/store/blob_registry/memory"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	memconsumer "github.com/storacha/sprue/pkg/store/consumer/memory"
@@ -32,6 +34,10 @@ var Module = fx.Module("memory-store",
 	fx.Provide(
 		NewAgentStore,
 		NewBlobRegistry,
+		fx.Annotate(
+			NewBlobRegistryService,
+			fx.As(new(blobregistry.Service)),
+		),
 		NewConsumerStore,
 		NewCustomerStore,
 		NewDelegationStore,
@@ -50,8 +56,12 @@ func NewAgentStore() agent.Store {
 	return memagent.New()
 }
 
-func NewBlobRegistry(spaceDiffStore spacediff.Store, consumerStore consumer.Store, spaceMetrics metrics.SpaceStore, adminMetrics metrics.Store) blobregistry.Store {
-	return memblobregistry.New(spaceDiffStore, consumerStore, spaceMetrics, adminMetrics)
+func NewBlobRegistry() blobregistrystore.Store {
+	return memblobregistry.New()
+}
+
+func NewBlobRegistryService(store blobregistrystore.Store, consumerStore consumer.Store, spaceDiffStore spacediff.Store, spaceMetrics metrics.SpaceStore, adminMetrics metrics.Store) *memblobregistrysvc.Service {
+	return memblobregistrysvc.NewService(store, consumerStore, spaceDiffStore, spaceMetrics, adminMetrics)
 }
 
 func NewConsumerStore() consumer.Store {

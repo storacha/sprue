@@ -21,7 +21,7 @@ import (
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
 	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/provisioning"
-	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	"github.com/storacha/sprue/pkg/blobregistry"
 )
 
 const IndexNotFoundErrorName = "IndexNotFound"
@@ -62,7 +62,7 @@ func extractRetrievalAuth(inv invocation.Invocation) (delegation.Delegation, err
 
 // WithSpaceIndexAddMethod registers the space/index/add handler.
 // This handler publishes index claims to the indexer service.
-func WithSpaceIndexAddMethod(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Store, indexerClient *indexerclient.Client, logger *zap.Logger) server.Option {
+func WithSpaceIndexAddMethod(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Service, indexerClient *indexerclient.Client, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceindexcap.AddAbility,
 		server.Provide(
@@ -72,7 +72,7 @@ func WithSpaceIndexAddMethod(provisioningSvc *provisioning.Service, blobRegistry
 	)
 }
 
-func SpaceIndexAddHandler(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Store, indexerClient *indexerclient.Client, logger *zap.Logger) server.HandlerFunc[spaceindexcap.AddCaveats, spaceindexcap.AddOk, failure.IPLDBuilderFailure] {
+func SpaceIndexAddHandler(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Service, indexerClient *indexerclient.Client, logger *zap.Logger) server.HandlerFunc[spaceindexcap.AddCaveats, spaceindexcap.AddOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", spaceindexcap.AddAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[spaceindexcap.AddCaveats],

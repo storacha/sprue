@@ -41,3 +41,9 @@ func Collect[T any](ctx context.Context, getPage GetPageFunc[T]) ([]T, error) {
 	}
 	return items, nil
 }
+
+type TransactionItems[T any] []T
+
+type Transactor[T any] interface {
+	Transact(ctx context.Context, items TransactionItems[T]) error
+}

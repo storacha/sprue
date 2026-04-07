@@ -20,7 +20,7 @@ import (
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/store/agent"
-	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	"github.com/storacha/sprue/pkg/blobregistry"
 	"go.uber.org/zap"
 )
 
@@ -28,7 +28,7 @@ func NewHTTPPutConcludeHandler(
 	router *routing.Service,
 	nodeProvider piriclient.Provider,
 	agentStore agent.Store,
-	blobRegistry blobregistry.Store,
+	blobRegistry blobregistry.Service,
 	logger *zap.Logger,
 ) ConclusionHandler {
 	log := logger.With(

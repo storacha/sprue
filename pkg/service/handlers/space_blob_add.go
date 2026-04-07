@@ -39,10 +39,10 @@ import (
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/store/agent"
-	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	"github.com/storacha/sprue/pkg/blobregistry"
 )
 
-func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
+func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Service, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceblobcap.AddAbility,
 		server.Provide(
@@ -52,7 +52,7 @@ func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, node
 	)
 }
 
-func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[spaceblobcap.AddCaveats, spaceblobcap.AddOk, failure.IPLDBuilderFailure] {
+func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Service, logger *zap.Logger) server.HandlerFunc[spaceblobcap.AddCaveats, spaceblobcap.AddOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", spaceblobcap.AddAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[spaceblobcap.AddCaveats],
@@ -339,7 +339,7 @@ func deriveDID(digest multihash.Multihash) (principal.Signer, error) {
 func maybeAccept(
 	ctx context.Context,
 	agentStore agent.Store,
-	blobRegistry blobregistry.Store,
+	blobRegistry blobregistry.Service,
 	nodeProvider piriclient.Provider,
 	providerInfo routing.StorageProviderInfo,
 	space ucan.Principal,

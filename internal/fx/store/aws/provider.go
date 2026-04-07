@@ -11,9 +11,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/storacha/sprue/internal/config"
 
+	"github.com/storacha/sprue/pkg/blobregistry"
+	awsblobregistrysvc "github.com/storacha/sprue/pkg/blobregistry/aws"
 	"github.com/storacha/sprue/pkg/store/agent"
 	awsagent "github.com/storacha/sprue/pkg/store/agent/aws"
-	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	blobregistrystore "github.com/storacha/sprue/pkg/store/blob_registry"
 	awsblobregistry "github.com/storacha/sprue/pkg/store/blob_registry/aws"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	awsconsumer "github.com/storacha/sprue/pkg/store/consumer/aws"
@@ -49,7 +51,12 @@ var Module = fx.Module("aws-store",
 		),
 		fx.Annotate(
 			NewBlobRegistry,
-			fx.As(new(blobregistry.Store)),
+			fx.As(fx.Self()),
+			fx.As(new(blobregistrystore.Store)),
+		),
+		fx.Annotate(
+			NewBlobRegistryService,
+			fx.As(new(blobregistry.Service)),
 		),
 		fx.Annotate(
 			NewConsumerStore,
@@ -175,14 +182,18 @@ func NewAgentStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, s3Cfg confi
 	return store
 }
 
-func NewBlobRegistry(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client, consumerStore consumer.Store, spaceDiff *awsspacediff.Store, spaceMetrics *awsmetrics.SpaceStore, adminMetrics *awsmetrics.Store) *awsblobregistry.Store {
-	store := awsblobregistry.New(dynamo, dynamoCfg.BlobRegistryTable, consumerStore, spaceDiff, spaceMetrics, adminMetrics)
+func NewBlobRegistry(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsblobregistry.Store {
+	store := awsblobregistry.New(dynamo, dynamoCfg.BlobRegistryTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
 		},
 	})
 	return store
+}
+
+func NewBlobRegistryService(dynamo *dynamodb.Client, store *awsblobregistry.Store, consumerStore consumer.Store, spaceDiff *awsspacediff.Store, spaceMetrics *awsmetrics.SpaceStore, adminMetrics *awsmetrics.Store) *awsblobregistrysvc.Service {
+	return awsblobregistrysvc.NewService(dynamo, store, consumerStore, spaceDiff, spaceMetrics, adminMetrics)
 }
 
 func NewConsumerStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsconsumer.Store {

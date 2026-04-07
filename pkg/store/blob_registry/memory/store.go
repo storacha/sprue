@@ -3,81 +3,28 @@ package memory
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
-	cid "github.com/ipfs/go-cid"
-	multihash "github.com/multiformats/go-multihash"
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
 	"github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/store"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
-	"github.com/storacha/sprue/pkg/store/consumer"
-	"github.com/storacha/sprue/pkg/store/metrics"
-	spacediff "github.com/storacha/sprue/pkg/store/space_diff"
 )
 
 type Store struct {
 	mutex sync.RWMutex
-	// space -> list of blob entries
-	blobs          map[did.DID][]blobregistry.Record
-	spaceDiffStore spacediff.Store
-	consumerStore  consumer.Store
-	spaceMetrics   metrics.SpaceStore
-	adminMetrics   metrics.Store
+	blobs map[did.DID][]blobregistry.Record
 }
 
 var _ blobregistry.Store = (*Store)(nil)
 
-func New(spaceDiffStore spacediff.Store, consumerStore consumer.Store, spaceMetrics metrics.SpaceStore, adminMetrics metrics.Store) *Store {
+func New() *Store {
 	return &Store{
-		blobs:          map[did.DID][]blobregistry.Record{},
-		spaceDiffStore: spaceDiffStore,
-		consumerStore:  consumerStore,
-		spaceMetrics:   spaceMetrics,
-		adminMetrics:   adminMetrics,
+		blobs: map[did.DID][]blobregistry.Record{},
 	}
-}
-
-func (s *Store) Deregister(ctx context.Context, space did.DID, digest multihash.Multihash, cause cid.Cid) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	ents := []blobregistry.Record{}
-	for _, ent := range s.blobs[space] {
-		if bytes.Equal(ent.Blob.Digest, digest) {
-			consumers, err := s.collectConsumers(ctx, space)
-			if err != nil {
-				return fmt.Errorf("collecting consumers: %w", err)
-			}
-			// There should only be one subscription per provider, but in theory you
-			// could have multiple providers for the same consumer (space).
-			for _, c := range consumers {
-				s.spaceDiffStore.Put(ctx, c.Provider, space, c.Subscription, cause, -int64(ent.Blob.Size), time.Now())
-			}
-
-			inc := map[string]uint64{
-				metrics.BlobRemoveTotalMetric:     1,
-				metrics.BlobRemoveSizeTotalMetric: ent.Blob.Size,
-			}
-			err = s.spaceMetrics.IncrementTotals(ctx, space, inc)
-			if err != nil {
-				return fmt.Errorf("incrementing space metrics: %w", err)
-			}
-			err = s.adminMetrics.IncrementTotals(ctx, inc)
-			if err != nil {
-				return fmt.Errorf("incrementing admin metrics: %w", err)
-			}
-		} else {
-			ents = append(ents, ent)
-		}
-	}
-	if len(ents) == len(s.blobs[space]) {
-		return blobregistry.ErrEntryNotFound
-	}
-	s.blobs[space] = ents
-	return nil
 }
 
 func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multihash) (blobregistry.Record, error) {
@@ -89,6 +36,25 @@ func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multiha
 		}
 	}
 	return blobregistry.Record{}, blobregistry.ErrEntryNotFound
+}
+
+func (s *Store) Add(ctx context.Context, space did.DID, blob types.Blob, cause cid.Cid) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	for _, ent := range s.blobs[space] {
+		if bytes.Equal(ent.Blob.Digest, blob.Digest) {
+			return blobregistry.ErrEntryExists
+		}
+	}
+
+	s.blobs[space] = append(s.blobs[space], blobregistry.Record{
+		Space:      space,
+		Blob:       blob,
+		Cause:      cause,
+		InsertedAt: time.Now(),
+	})
+	return nil
 }
 
 func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry.ListOption) (store.Page[blobregistry.Record], error) {
@@ -112,7 +78,7 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry
 			}
 		}
 		if !found {
-			return store.Page[blobregistry.Record]{}, fmt.Errorf("invalid cursor")
+			return store.Page[blobregistry.Record]{}, nil
 		}
 	}
 
@@ -128,63 +94,22 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry
 	return store.Page[blobregistry.Record]{Results: results, Cursor: cursor}, nil
 }
 
-func (s *Store) Register(ctx context.Context, space did.DID, blob types.Blob, cause cid.Cid) error {
+func (s *Store) Remove(ctx context.Context, space did.DID, digest multihash.Multihash) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	ents := []blobregistry.Record{}
+	found := false
 	for _, ent := range s.blobs[space] {
-		if bytes.Equal(ent.Blob.Digest, blob.Digest) {
-			return blobregistry.ErrEntryExists
+		if bytes.Equal(ent.Blob.Digest, digest) {
+			found = true
+		} else {
+			ents = append(ents, ent)
 		}
 	}
-
-	ent := blobregistry.Record{
-		Space:      space,
-		Blob:       blob,
-		Cause:      cause,
-		InsertedAt: time.Now(),
+	if !found {
+		return blobregistry.ErrEntryNotFound
 	}
-	s.blobs[space] = append(s.blobs[space], ent)
-
-	consumers, err := s.collectConsumers(ctx, space)
-	if err != nil {
-		return fmt.Errorf("collecting consumers: %w", err)
-	}
-	// There should only be one subscription per provider, but in theory you
-	// could have multiple providers for the same consumer (space).
-	for _, c := range consumers {
-		s.spaceDiffStore.Put(ctx, c.Provider, space, c.Subscription, cause, int64(blob.Size), time.Now())
-	}
-
-	inc := map[string]uint64{
-		metrics.BlobAddTotalMetric:     1,
-		metrics.BlobAddSizeTotalMetric: blob.Size,
-	}
-	err = s.spaceMetrics.IncrementTotals(ctx, space, inc)
-	if err != nil {
-		return fmt.Errorf("incrementing space metrics: %w", err)
-	}
-	err = s.adminMetrics.IncrementTotals(ctx, inc)
-	if err != nil {
-		return fmt.Errorf("incrementing admin metrics: %w", err)
-	}
-
+	s.blobs[space] = ents
 	return nil
-}
-
-func (s *Store) collectConsumers(ctx context.Context, space did.DID) ([]consumer.Record, error) {
-	results, err := store.Collect(ctx, func(ctx context.Context, options store.PaginationConfig) (store.Page[consumer.Record], error) {
-		opts := []consumer.ListOption{}
-		if options.Cursor != nil {
-			opts = append(opts, consumer.WithListCursor(*options.Cursor))
-		}
-		return s.consumerStore.List(ctx, space, opts...)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("listing consumers: %w", err)
-	}
-	if len(results) == 0 {
-		return nil, consumer.ErrConsumerNotFound
-	}
-	return results, nil
 }
