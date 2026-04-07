@@ -24,13 +24,15 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/internal/testutil"
+	"github.com/storacha/sprue/pkg/blobregistry"
+	memblobregistrysvc "github.com/storacha/sprue/pkg/blobregistry/memory"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/lib/didmailto"
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	agent_store "github.com/storacha/sprue/pkg/store/agent/memory"
-	blob_registry "github.com/storacha/sprue/pkg/store/blob_registry/memory"
+	memblobregistry "github.com/storacha/sprue/pkg/store/blob_registry/memory"
 	consumer_store "github.com/storacha/sprue/pkg/store/consumer/memory"
 	metrics_store "github.com/storacha/sprue/pkg/store/metrics/memory"
 	spacediff_store "github.com/storacha/sprue/pkg/store/space_diff/memory"
@@ -40,14 +42,11 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func newBlobRegistry() (*blob_registry.Store, *consumer_store.Store) {
+func newBlobRegistry() (blobregistry.Service, *consumer_store.Store) {
 	consumerStore := consumer_store.New()
-	return blob_registry.New(
-		spacediff_store.New(),
-		consumerStore,
-		metrics_store.NewSpaceStore(),
-		metrics_store.New(),
-	), consumerStore
+	store := memblobregistry.New()
+	svc := memblobregistrysvc.NewService(store, consumerStore, spacediff_store.New(), metrics_store.NewSpaceStore(), metrics_store.New())
+	return svc, consumerStore
 }
 
 // mockNodeProvider is a NodeProvider that creates piri clients connected

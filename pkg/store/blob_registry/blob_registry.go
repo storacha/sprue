@@ -51,11 +51,11 @@ type Record struct {
 type Store interface {
 	// Lookup an existing registration. May return [ErrEntryNotFound].
 	Get(ctx context.Context, space did.DID, digest multihash.Multihash) (Record, error)
-	// Adds an item into the registry if it does not already exist. May return
+	// Add an item into the registry if it does not already exist. May return
 	// [ErrEntryExists] if the blob is already registered in the space.
-	Register(ctx context.Context, space did.DID, blob types.Blob, cause cid.Cid) error
+	Add(ctx context.Context, space did.DID, blob types.Blob, cause cid.Cid) error
 	// List entries in the registry for a given space.
 	List(ctx context.Context, space did.DID, options ...ListOption) (store.Page[Record], error)
-	// Removes an item from the registry if it exists.
-	Deregister(ctx context.Context, space did.DID, digest multihash.Multihash, cause cid.Cid) error
+	// Remove an item from the registry if it exists.
+	Remove(ctx context.Context, space did.DID, digest multihash.Multihash) error
 }
