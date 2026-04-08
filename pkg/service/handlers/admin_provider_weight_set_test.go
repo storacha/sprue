@@ -108,7 +108,7 @@ func TestAdminProviderWeightSetHandler(t *testing.T) {
 
 		// Pre-register the provider with initial weights
 		initialReplWeight := 0
-		err = spStore.Put(ctx, storageProvider.DID(), *endpoint, proof, 0, &initialReplWeight)
+		err = spStore.Put(ctx, *endpoint, proof, 0, &initialReplWeight)
 		require.NoError(t, err)
 
 		// Set new weights
