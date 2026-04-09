@@ -34,7 +34,7 @@ func NewEchoServer(
 	// Middleware
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestID())
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLogger())
 
 	// Routes
 	e.GET("/", infoHandler(id))

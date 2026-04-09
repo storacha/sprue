@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/storacha/go-libstoracha/capabilities/types"
+	"github.com/storacha/go-ucanto/core/delegation"
+	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/routing"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
@@ -16,11 +18,19 @@ import (
 func addProvider(t *testing.T, store *spmemory.Store, weight int, replicationWeight *int) storageprovider.Record {
 	t.Helper()
 	ctx := t.Context()
-	id := testutil.RandomSigner(t)
+	storageProvider := testutil.RandomSigner(t)
 	endpoint := testutil.Must(url.Parse("https://piri.example.com"))(t)
-	err := store.Put(ctx, id.DID(), *endpoint, nil, weight, replicationWeight)
+	proof, err := delegation.Delegate(
+		storageProvider,
+		testutil.WebService,
+		[]ucan.Capability[ucan.NoCaveats]{
+			ucan.NewCapability("blob/allocate", storageProvider.DID().String(), ucan.NoCaveats{}),
+		},
+	)
 	require.NoError(t, err)
-	rec, err := store.Get(ctx, id.DID())
+	err = store.Put(ctx, *endpoint, proof, weight, replicationWeight)
+	require.NoError(t, err)
+	rec, err := store.Get(ctx, storageProvider.DID())
 	require.NoError(t, err)
 	return rec
 }

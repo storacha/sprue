@@ -13,6 +13,7 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure/datamodel"
+	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
 	"github.com/storacha/sprue/pkg/lib/errors"
@@ -36,7 +37,7 @@ func NewHTTPPutConcludeHandler(
 	)
 	return ConclusionHandler{
 		Ability: http.PutAbility,
-		Handler: func(ctx context.Context, putInv invocation.Invocation, putRcpt receipt.AnyReceipt) error {
+		Handler: func(ctx context.Context, putInv invocation.Invocation, putRcpt receipt.AnyReceipt, _ server.InvocationContext) error {
 			log := log.With(zap.Stringer("ran", putRcpt.Ran().Link()))
 			log.Debug("handling conclude")
 
@@ -48,22 +49,22 @@ func NewHTTPPutConcludeHandler(
 				return fmt.Errorf("matching http/put invocation: %w", err)
 			}
 
-			allocateTask, err := ipldutil.ToCID(putMatch.Value().Nb().URL.UcanAwait.Link)
+			allocateTaskLink, err := ipldutil.ToCID(putMatch.Value().Nb().URL.UcanAwait.Link)
 			if err != nil {
 				return err
 			}
-			log = log.With(zap.Stringer("allocation", allocateTask))
+			log = log.With(zap.Stringer("allocation", allocateTaskLink))
 
-			allocInv, err := agentStore.GetInvocation(ctx, allocateTask)
+			allocTask, err := agentStore.GetInvocation(ctx, allocateTaskLink)
 			if err != nil {
 				log.Error("failed to get allocation invocation", zap.Error(err))
 				return fmt.Errorf("getting allocation invocation: %w", err)
 			}
-			log = log.With(zap.Stringer("provider", allocInv.Audience().DID()))
+			log = log.With(zap.Stringer("provider", allocTask.Audience().DID()))
 
-			allocMatch, err := blob.Allocate.Match(validator.NewSource(allocInv.Capabilities()[0], allocInv))
+			allocMatch, err := blob.Allocate.Match(validator.NewSource(allocTask.Capabilities()[0], allocTask))
 			if err != nil {
-				log.Error("matching blob/allocate invocation: %w", zap.Error(err))
+				log.Error("matching blob/allocate invocation", zap.Error(err))
 				return fmt.Errorf("matching blob/allocate invocation: %w", err)
 			}
 
@@ -73,7 +74,7 @@ func NewHTTPPutConcludeHandler(
 				zap.String("digest", digestutil.Format(allocNb.Blob.Digest)),
 			)
 
-			info, err := router.GetProviderInfo(ctx, allocInv.Audience())
+			info, err := router.GetProviderInfo(ctx, allocTask.Audience())
 			if err != nil {
 				log.Error("failed to get storage provider info", zap.Error(err))
 				return fmt.Errorf("getting storage provider info: %w", err)
@@ -85,7 +86,7 @@ func NewHTTPPutConcludeHandler(
 				return fmt.Errorf("creating client: %w", err)
 			}
 
-			res, accInv, accRcpt, err := client.Accept(ctx, &piriclient.AcceptRequest{
+			res, accTask, accRcpt, err := client.Accept(ctx, &piriclient.AcceptRequest{
 				Space:  allocNb.Space,
 				Digest: allocNb.Blob.Digest,
 				Size:   allocNb.Blob.Size,
@@ -97,7 +98,7 @@ func NewHTTPPutConcludeHandler(
 			}
 			log = log.With(zap.Stringer("site", res.Site))
 
-			err = writeAgentMessage(ctx, agentStore, []invocation.Invocation{accInv}, []receipt.AnyReceipt{accRcpt})
+			err = writeAgentMessage(ctx, agentStore, []invocation.Invocation{accTask}, []receipt.AnyReceipt{accRcpt})
 			if err != nil {
 				log.Error("failed to write agent message", zap.Error(err))
 				return fmt.Errorf("writing agent message: %w", err)
@@ -108,7 +109,7 @@ func NewHTTPPutConcludeHandler(
 				accRcpt.Out(),
 				func(o ipld.Node) error {
 					log.Debug("accept success")
-					err := blobRegistry.Register(ctx, allocNb.Space, allocNb.Blob, allocateTask)
+					err := blobRegistry.Register(ctx, allocNb.Space, allocNb.Blob, allocateTaskLink)
 					// it's ok if there's already a registration of this blob in this space
 					if err != nil && !errors.Is(err, blobregistry.ErrEntryExists) {
 						return err

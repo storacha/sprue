@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
+	blobreplicacap "github.com/storacha/go-libstoracha/capabilities/blob/replica"
+	"github.com/storacha/go-libstoracha/capabilities/types"
 	uclient "github.com/storacha/go-ucanto/client"
+	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/ipld"
@@ -19,6 +22,13 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 )
+
+// Replication invocation timeout.
+//
+// Note: we set a reasonably large expiration as replication nodes use the
+// invocation as proof for obtaining a retrieval delegation, and we want to
+// allow for retries and/or job queue delays.
+const replicaAllocationTTL = time.Hour * 24
 
 // DelegationFetcher provides an interface for fetching delegation proofs on-demand.
 type DelegationFetcher interface {
@@ -112,7 +122,7 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 		c.piriDID.String(), // resource is the piri DID
 		blobcap.AllocateCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -152,7 +162,7 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 	}
 
 	// Read the receipt using the any reader to avoid type issues
-	anyReader := receipt.NewAnyReceiptReader(captypes.Converters...)
+	anyReader := receipt.NewAnyReceiptReader(types.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
@@ -189,7 +199,7 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 		anyRcpt,
 		blobcap.AllocateOkType(),
 		fdm.FailureType(),
-		captypes.Converters...,
+		types.Converters...,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("rebinding receipt: %w", err)
@@ -220,7 +230,7 @@ func (c *Client) AllocateInvocation(ctx context.Context, req *AllocateRequest, f
 		c.piriDID.String(),
 		blobcap.AllocateCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -265,7 +275,7 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher Delegat
 		c.piriDID.String(),
 		blobcap.AcceptCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -310,7 +320,7 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher Delegat
 	}
 
 	// Read the receipt using the any reader
-	anyReader := receipt.NewAnyReceiptReader(captypes.Converters...)
+	anyReader := receipt.NewAnyReceiptReader(types.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
@@ -368,7 +378,7 @@ func (c *Client) AcceptInvocation(ctx context.Context, req *AcceptRequest, fetch
 		c.piriDID.String(),
 		blobcap.AcceptCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -381,4 +391,121 @@ func (c *Client) AcceptInvocation(ctx context.Context, req *AcceptRequest, fetch
 		},
 		opts...,
 	)
+}
+
+// ReplicaAllocateRequest contains the parameters for a blob/replica/allocate invocation.
+type ReplicaAllocateRequest struct {
+	Space  did.DID
+	Digest []byte
+	Size   uint64
+	Site   delegation.Delegation // Location commitment
+	Cause  ipld.Link
+}
+
+// ReplicaAllocateResponse contains the response from a blob/replica/allocate invocation.
+type ReplicaAllocateResponse struct {
+	// Size is the number of bytes allocated for the Blob.
+	Size uint64
+	// Site resolves to an additional location for the blob.
+	// The selector MUST be ".out.ok.site" i.e. [AllocateSiteSelector] and it
+	// links to a receipt of a "blob/replica/transfer" task.
+	Site types.Promise
+	// Transfer is the invocation referenced in the promise, which is included in
+	// the allocation response.
+	Transfer invocation.Invocation
+}
+
+// ReplicaAllocate sends a blob/replica/allocate invocation to the piri node.
+// Returns the response data, the invocation that was sent, and the receipt from
+// piri. It returns an error if the receipt contains a failure result.
+func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateRequest, fetcher DelegationFetcher) (*ReplicaAllocateResponse, invocation.Invocation, receipt.AnyReceipt, error) {
+	opts, err := c.fetchDelegationOpts(ctx, fetcher)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// We set a reasonably large expiration as replication nodes use the
+	// invocation as proof for obtaining a retrieval delegation, and we want to
+	// allow for retries and/or job queue delays.
+	exp := time.Now().Add(replicaAllocationTTL).Unix()
+	opts = append(opts, delegation.WithExpiration(int(exp)))
+
+	inv, err := blobreplicacap.Allocate.Invoke(
+		c.signer,
+		c.piriDID,
+		c.piriDID.String(), // resource is the piri DID
+		blobreplicacap.AllocateCaveats{
+			Space: req.Space,
+			Blob: types.Blob{
+				Digest: req.Digest,
+				Size:   req.Size,
+			},
+			Site:  req.Site.Link(),
+			Cause: req.Cause,
+		},
+		opts...,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("creating replica allocate invocation: %w", err)
+	}
+
+	// attach the location commitment to the allocation invocation
+	for b, err := range req.Site.Blocks() {
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("iterating location commitment blocks: %w", err)
+		}
+		if err := inv.Attach(b); err != nil {
+			return nil, nil, nil, fmt.Errorf("attaching location commitment block: %w", err)
+		}
+	}
+
+	c.logger.Debug("REPLICA ALLOCATE invocation created",
+		zap.Stringer("issuer", inv.Issuer().DID()),
+		zap.Stringer("audience", inv.Audience().DID()),
+		zap.Int("proofs", len(inv.Proofs())))
+
+	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("executing replica allocate invocation: %w", err)
+	}
+
+	rcptLink, ok := resp.Get(inv.Link())
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
+	}
+
+	reader := receipt.NewAnyReceiptReader(types.Converters...)
+	rcpt, err := reader.Read(rcptLink, resp.Blocks())
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
+	}
+
+	o, x := result.Unwrap(rcpt.Out())
+	if x != nil {
+		return nil, nil, nil, fmt.Errorf("allocate failed: %s", fdm.Bind(x).Message)
+	}
+
+	allocateOk, err := ipld.Rebind[blobreplicacap.AllocateOk](o, blobreplicacap.AllocateOkType(), types.Converters...)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("rebinding receipt: %w", err)
+	}
+
+	if allocateOk.Site.UcanAwait.Selector != blobreplicacap.AllocateSiteSelector {
+		return nil, nil, nil, fmt.Errorf("unexpected site selector: %s", allocateOk.Site.UcanAwait.Selector)
+	}
+
+	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(rcpt.Blocks()))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("creating block reader: %w", err)
+	}
+	transfer, err := invocation.NewInvocationView(allocateOk.Site.UcanAwait.Link, br)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("creating transfer invocation view: %w", err)
+	}
+
+	return &ReplicaAllocateResponse{
+		Size:     allocateOk.Size,
+		Site:     allocateOk.Site,
+		Transfer: transfer,
+	}, inv, rcpt, nil
 }

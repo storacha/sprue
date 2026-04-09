@@ -195,7 +195,7 @@ func createSessionProofsForLogin(
 		return nil, fmt.Errorf("collecting delegations for account: %w", err)
 	}
 
-	caps := make([]ucan.Capability[ucan.NoCaveats], len(loginDlg.Capabilities()))
+	caps := make([]ucan.Capability[ucan.NoCaveats], 0, len(loginDlg.Capabilities()))
 	for _, cap := range loginDlg.Capabilities() {
 		caps = append(caps, ucan.NewCapability(cap.Can(), cap.With(), ucan.NoCaveats{}))
 	}

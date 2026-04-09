@@ -2,6 +2,7 @@ package fx
 
 import (
 	"fmt"
+	"net/smtp"
 
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -12,6 +13,7 @@ import (
 	"github.com/storacha/sprue/pkg/mailer"
 	"github.com/storacha/sprue/pkg/mailer/nop"
 	"github.com/storacha/sprue/pkg/mailer/postmark"
+	smtp_mailer "github.com/storacha/sprue/pkg/mailer/smtp"
 	"github.com/storacha/sprue/pkg/provisioning"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/store/consumer"
@@ -29,6 +31,23 @@ func NewMailingService(deploymentCfg config.DeploymentConfig, mailerCfg config.M
 	switch mailerCfg.Type {
 	case "nop":
 		return nop.New(logger), nil
+	case "smtp":
+		if mailerCfg.SMTPAddr == "" {
+			return nil, fmt.Errorf("missing SMTP mailer address")
+		}
+		if mailerCfg.SMTPAuthUser == "" {
+			return nil, fmt.Errorf("missing SMTP mailer username")
+		}
+		if mailerCfg.SMTPAuthSecret == "" {
+			return nil, fmt.Errorf("missing SMTP mailer CRAMMD5 auth secret")
+		}
+		auth := smtp.CRAMMD5Auth(mailerCfg.SMTPAuthUser, mailerCfg.SMTPAuthSecret)
+		return smtp_mailer.New(
+			mailerCfg.SMTPAddr,
+			auth,
+			smtp_mailer.WithSubject(mailerCfg.Subject),
+			smtp_mailer.WithSender(mailerCfg.Sender),
+		), nil
 	case "postmark":
 		if mailerCfg.PostmarkToken == "" {
 			return nil, fmt.Errorf("postmark mail configured but token not set")
