@@ -201,7 +201,7 @@ func TestSpaceBlobAddHandler(t *testing.T) {
 
 	t.Run("zero weight providers returns candidate unavailable", func(t *testing.T) {
 		spStore := storage_provider_store.New()
-		err := spStore.Put(ctx, storageProvider.DID(), *storageProviderURL, storageProviderProof, 0, nil)
+		err := spStore.Put(ctx, *storageProviderURL, storageProviderProof, 0, nil)
 		require.NoError(t, err)
 
 		router := routing.NewService(spStore, logger)
@@ -253,7 +253,7 @@ func TestSpaceBlobAddHandler(t *testing.T) {
 		)
 
 		spStore := storage_provider_store.New()
-		err := spStore.Put(ctx, storageProvider.DID(), *storageProviderURL, storageProviderProof, 100, nil)
+		err := spStore.Put(ctx, *storageProviderURL, storageProviderProof, 100, nil)
 		require.NoError(t, err)
 
 		router := routing.NewService(spStore, logger)
@@ -304,7 +304,7 @@ func TestSpaceBlobAddHandler(t *testing.T) {
 		)
 
 		spStore := storage_provider_store.New()
-		err := spStore.Put(ctx, storageProvider.DID(), *storageProviderURL, storageProviderProof, 100, nil)
+		err := spStore.Put(ctx, *storageProviderURL, storageProviderProof, 100, nil)
 		require.NoError(t, err)
 
 		router := routing.NewService(spStore, logger)

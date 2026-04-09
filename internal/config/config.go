@@ -114,12 +114,21 @@ type LogConfig struct {
 }
 
 type MailerConfig struct {
-	// Type specifies the mailer implementation to use (e.g., "postmark", "nop").
+	// Type specifies the mailer implementation to use (e.g., "postmark", "smtp", "nop").
 	Type string `mapstructure:"type"`
 	// Email address to use as the default sender for outgoing emails.
 	Sender string `mapstructure:"sender"`
+	// Subject configures the email subject line for outgoing emails. Note: this
+	// is unused for some mailer types.
+	Subject string `mapstructure:"subject"`
 	// Postmark settings
 	PostmarkToken string `mapstructure:"postmark_token"`
+	// Address of the SMTP server (e.g., "smtp.example.com:25")
+	SMTPAddr string `mapstructure:"smtp_addr"`
+	// Username for SMTP authentication
+	SMTPAuthUser string `mapstructure:"smtp_auth_user"`
+	// Secret for CRAMMD5 SMTP authentication
+	SMTPAuthSecret string `mapstructure:"smtp_auth_secret"`
 }
 
 // SetDefaults configures default values for viper.
