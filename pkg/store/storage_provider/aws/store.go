@@ -65,53 +65,56 @@ func (s *Store) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) Put(ctx context.Context, providerID did.DID, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight int) error {
+func (s *Store) Put(ctx context.Context, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error {
 	proofStr, err := delegation.Format(proof)
 	if err != nil {
 		return fmt.Errorf("formatting proof: %w", err)
 	}
 
 	now := time.Now().UTC().Format(timeutil.SimplifiedISO8601)
-
-	_, err = s.dynamo.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+	input := dynamodb.UpdateItemInput{
 		TableName: aws.String(s.tableName),
-		Key:       map[string]types.AttributeValue{"provider": &types.AttributeValueMemberS{Value: providerID.String()}},
+		Key:       map[string]types.AttributeValue{"provider": &types.AttributeValueMemberS{Value: proof.Issuer().DID().String()}},
 		UpdateExpression: aws.String(
 			"SET #endpoint = :endpoint, #proof = :proof, #weight = :weight, #replicationWeight = :replicationWeight, #insertedAt = if_not_exists(#insertedAt, :now), #updatedAt = :now",
 		),
 		ExpressionAttributeNames: map[string]string{
-			"#endpoint":          "endpoint",
-			"#proof":             "proof",
-			"#weight":            "weight",
-			"#replicationWeight": "replicationWeight",
-			"#insertedAt":        "insertedAt",
-			"#updatedAt":         "updatedAt",
+			"#endpoint":   "endpoint",
+			"#proof":      "proof",
+			"#weight":     "weight",
+			"#insertedAt": "insertedAt",
+			"#updatedAt":  "updatedAt",
 		},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":endpoint":          &types.AttributeValueMemberS{Value: endpoint.String()},
-			":proof":             &types.AttributeValueMemberS{Value: proofStr},
-			":weight":            &types.AttributeValueMemberN{Value: strconv.Itoa(weight)},
-			":replicationWeight": &types.AttributeValueMemberN{Value: strconv.Itoa(replicationWeight)},
-			":now":               &types.AttributeValueMemberS{Value: now},
+			":endpoint": &types.AttributeValueMemberS{Value: endpoint.String()},
+			":proof":    &types.AttributeValueMemberS{Value: proofStr},
+			":weight":   &types.AttributeValueMemberN{Value: strconv.Itoa(weight)},
+			":now":      &types.AttributeValueMemberS{Value: now},
 		},
-	})
+	}
+	if replicationWeight != nil {
+		input.ExpressionAttributeNames["#replicationWeight"] = "replicationWeight"
+		input.ExpressionAttributeValues[":replicationWeight"] = &types.AttributeValueMemberN{Value: strconv.Itoa(*replicationWeight)}
+	}
+
+	_, err = s.dynamo.UpdateItem(ctx, &input)
 	if err != nil {
 		return fmt.Errorf("storing storage provider: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, providerID did.DID) (storageprovider.StorageProviderRecord, error) {
+func (s *Store) Get(ctx context.Context, providerID did.DID) (storageprovider.Record, error) {
 	out, err := s.dynamo.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName:      aws.String(s.tableName),
 		Key:            map[string]types.AttributeValue{"provider": &types.AttributeValueMemberS{Value: providerID.String()}},
 		ConsistentRead: aws.Bool(true),
 	})
 	if err != nil {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("getting storage provider: %w", err)
+		return storageprovider.Record{}, fmt.Errorf("getting storage provider: %w", err)
 	}
 	if len(out.Item) == 0 {
-		return storageprovider.StorageProviderRecord{}, storageprovider.ErrStorageProviderNotFound
+		return storageprovider.Record{}, storageprovider.ErrStorageProviderNotFound
 	}
 	return itemToRecord(out.Item)
 }
@@ -135,7 +138,7 @@ func (s *Store) Delete(ctx context.Context, providerID did.DID) error {
 	return nil
 }
 
-func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption) (store.Page[storageprovider.StorageProviderRecord], error) {
+func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption) (store.Page[storageprovider.Record], error) {
 	cfg := storageprovider.ListConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -155,14 +158,14 @@ func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption)
 
 	out, err := s.dynamo.Scan(ctx, input)
 	if err != nil {
-		return store.Page[storageprovider.StorageProviderRecord]{}, fmt.Errorf("listing storage providers: %w", err)
+		return store.Page[storageprovider.Record]{}, fmt.Errorf("listing storage providers: %w", err)
 	}
 
-	records := make([]storageprovider.StorageProviderRecord, 0, len(out.Items))
+	records := make([]storageprovider.Record, 0, len(out.Items))
 	for _, item := range out.Items {
 		rec, err := itemToRecord(item)
 		if err != nil {
-			return store.Page[storageprovider.StorageProviderRecord]{}, err
+			return store.Page[storageprovider.Record]{}, err
 		}
 		records = append(records, rec)
 	}
@@ -174,56 +177,60 @@ func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption)
 		}
 	}
 
-	return store.Page[storageprovider.StorageProviderRecord]{Results: records, Cursor: cursor}, nil
+	return store.Page[storageprovider.Record]{Results: records, Cursor: cursor}, nil
 }
 
-func itemToRecord(item map[string]types.AttributeValue) (storageprovider.StorageProviderRecord, error) {
+func itemToRecord(item map[string]types.AttributeValue) (storageprovider.Record, error) {
 	providerAttr, ok := item["provider"].(*types.AttributeValueMemberS)
 	if !ok {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("missing or invalid provider attribute")
+		return storageprovider.Record{}, fmt.Errorf("missing or invalid provider attribute")
 	}
 	providerDID, err := did.Parse(providerAttr.Value)
 	if err != nil {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("parsing provider DID: %w", err)
+		return storageprovider.Record{}, fmt.Errorf("parsing provider DID: %w", err)
 	}
 
 	endpointAttr, ok := item["endpoint"].(*types.AttributeValueMemberS)
 	if !ok {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("missing or invalid endpoint attribute")
+		return storageprovider.Record{}, fmt.Errorf("missing or invalid endpoint attribute")
 	}
 	endpointURL, err := url.Parse(endpointAttr.Value)
 	if err != nil {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("parsing endpoint URL: %w", err)
+		return storageprovider.Record{}, fmt.Errorf("parsing endpoint URL: %w", err)
 	}
 
 	proofAttr, ok := item["proof"].(*types.AttributeValueMemberS)
 	if !ok {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("missing or invalid proof attribute")
+		return storageprovider.Record{}, fmt.Errorf("missing or invalid proof attribute")
 	}
 	proof, err := delegation.Parse(proofAttr.Value)
 	if err != nil {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("parsing proof: %w", err)
+		return storageprovider.Record{}, fmt.Errorf("parsing proof: %w", err)
 	}
 
 	weightAttr, ok := item["weight"].(*types.AttributeValueMemberN)
 	if !ok {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("missing or invalid weight attribute")
+		return storageprovider.Record{}, fmt.Errorf("missing or invalid weight attribute")
 	}
 	weight, err := strconv.Atoi(weightAttr.Value)
 	if err != nil {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("parsing weight: %w", err)
+		return storageprovider.Record{}, fmt.Errorf("parsing weight: %w", err)
 	}
 
-	replicationWeightAttr, ok := item["replicationWeight"].(*types.AttributeValueMemberN)
-	if !ok {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("missing or invalid replicationWeight attribute")
-	}
-	replicationWeight, err := strconv.Atoi(replicationWeightAttr.Value)
-	if err != nil {
-		return storageprovider.StorageProviderRecord{}, fmt.Errorf("parsing replicationWeight: %w", err)
+	var replicationWeight *int
+	if item["replicationWeight"] != nil {
+		replicationWeightAttr, ok := item["replicationWeight"].(*types.AttributeValueMemberN)
+		if !ok {
+			return storageprovider.Record{}, fmt.Errorf("missing or invalid replicationWeight attribute")
+		}
+		weight, err := strconv.Atoi(replicationWeightAttr.Value)
+		if err != nil {
+			return storageprovider.Record{}, fmt.Errorf("parsing replicationWeight: %w", err)
+		}
+		replicationWeight = &weight
 	}
 
-	rec := storageprovider.StorageProviderRecord{
+	rec := storageprovider.Record{
 		Provider:          providerDID,
 		Endpoint:          *endpointURL,
 		Proof:             proof,

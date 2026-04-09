@@ -9,18 +9,41 @@ import (
 
 // Config holds the sprue service configuration.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Identity IdentityConfig `mapstructure:"identity"`
-	Indexer  IndexerConfig  `mapstructure:"indexer"`
-	DynamoDB DynamoDBConfig `mapstructure:"dynamodb"`
-	S3       S3Config       `mapstructure:"s3"`
-	Log      LogConfig      `mapstructure:"log"`
+	Deployment DeploymentConfig `mapstructure:"deployment"`
+	Server     ServerConfig     `mapstructure:"server"`
+	Identity   IdentityConfig   `mapstructure:"identity"`
+	Indexer    IndexerConfig    `mapstructure:"indexer"`
+	DynamoDB   DynamoDBConfig   `mapstructure:"dynamodb"`
+	S3         S3Config         `mapstructure:"s3"`
+	Log        LogConfig        `mapstructure:"log"`
+	Mailer     MailerConfig     `mapstructure:"mailer"`
+}
+
+type DeploymentConfig struct {
+	// Environment is the deployment environment name (e.g., staging, production).
+	Environment string `mapstructure:"environment"`
+	// AllowProvisionWithoutPaymentPlan indicates whether the service allows users
+	// to provision a space without an active payment plan. It should only be true
+	// in development or testing environments.
+	AllowProvisionWithoutPaymentPlan bool `mapstructure:"allow_provision_without_payment_plan"`
+	// MaxReplicas is the maximum number of replicas that can be allocated for a
+	// given blob. It includes the original blob that was uploaded, so only values
+	// above 1 will allow users to have multiple copies of their data.
+	MaxReplicas uint `mapstructure:"max_replicas"`
+	// InMemoryStores indicates whether to use in-memory stores instead of
+	// DynamoDB/S3. All data will be lost on service restart when this is true, so
+	// it should only be used for development or testing. It overrides all other
+	// store-related config when true.
+	InMemoryStores bool `mapstructure:"in_memory_stores"`
 }
 
 // ServerConfig holds HTTP server settings.
 type ServerConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
+	// PublicURL is the public URL for the service, used in email links and UCANs.
+	// If not set, it will be derived from Host and Port.
+	PublicURL string `mapstructure:"public_url"`
 }
 
 // IdentityConfig holds service identity settings.
@@ -29,7 +52,7 @@ type IdentityConfig struct {
 	// Takes precedence over PrivateKey if set.
 	KeyFile string `mapstructure:"key_file"`
 
-	// PrivateKey is the base64-encoded ed25519 private key for service identity.
+	// PrivateKey is the multibase base64-encoded ed25519 private key for service identity.
 	// If empty and KeyFile is not set, a key will be generated at startup.
 	PrivateKey string `mapstructure:"private_key"`
 
@@ -55,24 +78,6 @@ type DynamoDBConfig struct {
 
 	// Region is the AWS region for DynamoDB.
 	Region string `mapstructure:"region"`
-
-	// ProviderTable is the table name for provider info.
-	ProviderTable string `mapstructure:"provider_table"`
-
-	// AllocationsTable is the table name for blob allocations.
-	AllocationsTable string `mapstructure:"allocations_table"`
-
-	// ReceiptsTable is the table name for UCAN receipts.
-	ReceiptsTable string `mapstructure:"receipts_table"`
-
-	// AuthRequestsTable is the table name for auth requests.
-	AuthRequestsTable string `mapstructure:"auth_requests_table"`
-
-	// ProvisioningsTable is the table name for space provisionings.
-	ProvisioningsTable string `mapstructure:"provisionings_table"`
-
-	// UploadsTable is the table name for uploads.
-	UploadsTable string `mapstructure:"uploads_table"`
 
 	AgentIndexTable      string `mapstructure:"agent_index_table"`
 	BlobRegistryTable    string `mapstructure:"blob_registry_table"`
@@ -106,6 +111,24 @@ type S3Config struct {
 type LogConfig struct {
 	// Level controls logging verbosity (debug, info, warn, error).
 	Level string `mapstructure:"level"`
+}
+
+type MailerConfig struct {
+	// Type specifies the mailer implementation to use (e.g., "postmark", "smtp", "nop").
+	Type string `mapstructure:"type"`
+	// Email address to use as the default sender for outgoing emails.
+	Sender string `mapstructure:"sender"`
+	// Subject configures the email subject line for outgoing emails. Note: this
+	// is unused for some mailer types.
+	Subject string `mapstructure:"subject"`
+	// Postmark settings
+	PostmarkToken string `mapstructure:"postmark_token"`
+	// Address of the SMTP server (e.g., "smtp.example.com:25")
+	SMTPAddr string `mapstructure:"smtp_addr"`
+	// Username for SMTP authentication
+	SMTPAuthUser string `mapstructure:"smtp_auth_user"`
+	// Secret for CRAMMD5 SMTP authentication
+	SMTPAuthSecret string `mapstructure:"smtp_auth_secret"`
 }
 
 // SetDefaults configures default values for viper.

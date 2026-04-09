@@ -18,7 +18,7 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/ok"
 	"github.com/storacha/go-ucanto/ucan"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store/agent"
 	"github.com/storacha/sprue/pkg/store/agent/aws"
 	"github.com/storacha/sprue/pkg/store/agent/memory"

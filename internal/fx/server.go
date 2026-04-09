@@ -34,13 +34,15 @@ func NewEchoServer(
 	// Middleware
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestID())
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLogger())
 
 	// Routes
 	e.GET("/", infoHandler(id))
 	e.GET("/health", healthHandler)
 	e.GET("/.well-known/did.json", didDocumentHandler(id))
 	e.POST("/", svc.HandleUCANRequest)
+	e.GET("/validate-email", svc.HandleValidateEmailRequest)
+	e.POST("/validate-email", svc.HandleValidateEmailRequest)
 	e.GET("/receipt/:cid", svc.HandleReceiptRequest)
 
 	return e

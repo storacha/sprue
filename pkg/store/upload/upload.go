@@ -6,13 +6,14 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
 const UploadNotFoundErrorName = "UploadNotFound"
 
 // ErrUploadNotFound indicates an upload does not exist.
-var ErrUploadNotFound = store.NewError(UploadNotFoundErrorName, "upload not found")
+var ErrUploadNotFound = errors.New(UploadNotFoundErrorName, "upload not found")
 
 type (
 	ListConfig       = store.PaginationConfig

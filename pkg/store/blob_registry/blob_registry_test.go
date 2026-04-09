@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/storacha/go-capabilities/pkg/blob"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	captypes "github.com/storacha/go-libstoracha/capabilities/types"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 	blobregistryaws "github.com/storacha/sprue/pkg/store/blob_registry/aws"
@@ -102,9 +102,9 @@ func createAWSStores(t *testing.T) storeBundle {
 }
 
 // randomBlob returns a blob with a random digest and the given size.
-func randomBlob(t *testing.T, size uint64) blob.Blob {
+func randomBlob(t *testing.T, size uint64) captypes.Blob {
 	t.Helper()
-	return blob.Blob{Digest: testutil.RandomMultihash(t), Size: size}
+	return captypes.Blob{Digest: testutil.RandomMultihash(t), Size: size}
 }
 
 func TestBlobRegistryStore(t *testing.T) {
@@ -256,7 +256,7 @@ func TestBlobRegistryStore(t *testing.T) {
 					require.NoError(t, b.registry.Register(t.Context(), space, randomBlob(t, 512), cause))
 				}
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[blobregistry.EntryRecord], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[blobregistry.Record], error) {
 					listOpts := []blobregistry.ListOption{blobregistry.WithListLimit(2)}
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, blobregistry.WithListCursor(*opts.Cursor))
