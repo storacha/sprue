@@ -35,7 +35,7 @@ func WithListCursor(cursor string) ListOption {
 
 // Captures information about a customer of the service that may need to be
 // billed for storage usage.
-type CustomerRecord struct {
+type Record struct {
 	// DID of the user account e.g. `did:mailto:agent`
 	Customer did.DID
 	// Opaque identifier representing an account in the payment system
@@ -56,10 +56,10 @@ type CustomerRecord struct {
 
 type Store interface {
 	// May return [ErrCustomerNotFound] if the customer does not exist.
-	Get(ctx context.Context, customer did.DID) (CustomerRecord, error)
+	Get(ctx context.Context, customer did.DID) (Record, error)
 	// May return [ErrCustomerExists] if the customer already exists.
 	Add(ctx context.Context, customer did.DID, account *string, product did.DID, details map[string]any, reservedCapacity *uint64) error
-	List(ctx context.Context, options ...ListOption) (store.Page[CustomerRecord], error)
+	List(ctx context.Context, options ...ListOption) (store.Page[Record], error)
 	// Update the product (plan) for a customer. May return [ErrCustomerNotFound]
 	// if the customer does not exist.
 	UpdateProduct(ctx context.Context, customer did.DID, product did.DID) error

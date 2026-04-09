@@ -2,36 +2,412 @@ package handlers
 
 import (
 	"context"
-	"encoding/hex"
+	"crypto/ed25519"
 	"fmt"
-	"net/url"
-	"time"
+	"io"
 
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/fluent/qp"
 	basicnode "github.com/ipld/go-ipld-prime/node/basic"
+	"github.com/multiformats/go-multihash"
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
 	httpcap "github.com/storacha/go-libstoracha/capabilities/http"
 	spaceblobcap "github.com/storacha/go-libstoracha/capabilities/space/blob"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
+	"github.com/storacha/go-libstoracha/capabilities/types"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
+	"github.com/storacha/go-libstoracha/digestutil"
+	"github.com/storacha/go-ucanto/core/car"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/invocation"
+	"github.com/storacha/go-ucanto/core/ipld"
+	"github.com/storacha/go-ucanto/core/message"
+	"github.com/storacha/go-ucanto/core/receipt"
 	"github.com/storacha/go-ucanto/core/receipt/fx"
+	"github.com/storacha/go-ucanto/core/receipt/ran"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/go-ucanto/principal"
 	ed25519signer "github.com/storacha/go-ucanto/principal/ed25519/signer"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 
 	"github.com/storacha/sprue/pkg/identity"
+	"github.com/storacha/sprue/pkg/internal/ipldutil"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/piriclient"
-	"github.com/storacha/sprue/pkg/state"
+	"github.com/storacha/sprue/pkg/routing"
+	"github.com/storacha/sprue/pkg/store/agent"
+	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 )
 
+func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
+	return server.WithServiceMethod(
+		spaceblobcap.AddAbility,
+		server.Provide(
+			spaceblobcap.Add,
+			SpaceBlobAddHandler(id, router, nodeProvider, agentStore, blobRegistry, logger),
+		),
+	)
+}
+
+func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[spaceblobcap.AddCaveats, spaceblobcap.AddOk, failure.IPLDBuilderFailure] {
+	log := logger.With(zap.String("handler", spaceblobcap.AddAbility))
+	return func(ctx context.Context,
+		cap ucan.Capability[spaceblobcap.AddCaveats],
+		inv invocation.Invocation,
+		iCtx server.InvocationContext,
+	) (result.Result[spaceblobcap.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
+		blob := cap.Nb().Blob
+		b58digest := digestutil.Format(blob.Digest)
+
+		log := log.With(
+			zap.String("space", cap.With()),
+			zap.Dict(
+				"blob",
+				zap.String("digest", b58digest),
+				zap.Uint64("size", blob.Size),
+			),
+		)
+		log.Debug("adding blob")
+
+		space, err := did.Parse(cap.With())
+		if err != nil {
+			return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+				errors.New(InvalidSpaceErrorName, "invalid space DID: %v", err),
+			), nil, nil
+		}
+
+		provider, allocInv, allocRcpt, allocOK, err := doAllocate(ctx, router, nodeProvider, agentStore, space, blob, inv.Link(), log)
+		if err != nil {
+			if errors.Is(err, routing.ErrCandidateUnavailable) {
+				return result.Error[spaceblobcap.AddOk, failure.IPLDBuilderFailure](
+					routing.ErrCandidateUnavailable,
+				), nil, nil
+			}
+			log.Error("allocation failed", zap.Error(err))
+			return nil, nil, fmt.Errorf("allocating space: %w", err)
+		}
+		log = log.With(zap.Stringer("provider", provider.ID.DID()))
+
+		putInv, putRcpt, err := genPut(blob, allocInv, allocOK, log)
+		if err != nil {
+			log.Error("failed to generate put invocation", zap.Error(err))
+			return nil, nil, fmt.Errorf("generating put invocation: %w", err)
+		}
+
+		accInv, accRcpt, err := maybeAccept(ctx, agentStore, blobRegistry, nodeProvider, provider, space, blob, putInv, putRcpt, log)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		forks := []fx.Effect{
+			fx.FromInvocation(allocInv),
+			fx.FromInvocation(putInv),
+			fx.FromInvocation(accInv),
+		}
+
+		// As a temporary solution we fork all add effects that add inline
+		// receipts so they can be delivered to the client.
+		for _, rcpt := range []receipt.AnyReceipt{allocRcpt, putRcpt, accRcpt} {
+			if rcpt == nil {
+				continue
+			}
+			conclude, err := issueConclude(id.Signer, rcpt)
+			if err != nil {
+				log.Error("failed to create conclude invocation for receipt", zap.Error(err))
+				return nil, nil, fmt.Errorf("creating conclude invocation: %w", err)
+			}
+			forks = append(forks, fx.FromInvocation(conclude))
+		}
+
+		fx := fx.NewEffects(fx.WithFork(forks...))
+
+		return result.Ok[spaceblobcap.AddOk, failure.IPLDBuilderFailure](spaceblobcap.AddOk{
+			Site: types.Promise{
+				UcanAwait: types.Await{
+					Selector: ".out.ok.site",
+					Link:     accInv.Link(),
+				},
+			},
+		}), fx, nil
+	}
+}
+
+// issueConclude generates a ucan/conclude invocation for the given receipt.
+func issueConclude(id ucan.Signer, receipt receipt.AnyReceipt) (invocation.IssuedInvocation, error) {
+	inv, err := ucancap.Conclude.Invoke(
+		id,
+		id,
+		id.DID().String(),
+		ucancap.ConcludeCaveats{
+			Receipt: receipt.Root().Link(),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating conclude invocation: %w", err)
+	}
+	// Attach the receipt blocks to the conclude invocation
+	for blk, err := range receipt.Blocks() {
+		if err != nil {
+			return nil, fmt.Errorf("getting receipt block: %w", err)
+		}
+		if err := inv.Attach(blk); err != nil {
+			return nil, fmt.Errorf("attaching receipt block: %w", err)
+		}
+	}
+	return inv, nil
+}
+
+type delegationFetcher struct {
+	proof delegation.Delegation
+}
+
+// FIXME: this is silly, really the client should authorize the upload service
+// to blob/allocate and blob/accept and then the upload service should use that
+// delegation to authorize allocate and accept calls to the storage provider.
+// This removes the need for storage providers to grant love lived delegations
+// to the upload service. We will fix this in UCAN 1.0.
+func (df delegationFetcher) GetDelegation(ctx context.Context, audience ucan.Principal) (delegation.Delegation, error) {
+	if df.proof.Audience().DID() != audience.DID() {
+		return nil, fmt.Errorf("delegation audience is %s, but invocation requires proof with audience %s", df.proof.Audience().DID(), audience.DID())
+	}
+	return df.proof, nil
+}
+
+func doAllocate(
+	ctx context.Context,
+	router *routing.Service,
+	nodeProvider piriclient.Provider,
+	agentStore agent.Store,
+	space did.DID,
+	blob types.Blob,
+	cause ucan.Link,
+	logger *zap.Logger,
+) (routing.StorageProviderInfo, invocation.Invocation, receipt.AnyReceipt, blobcap.AllocateOk, error) {
+	log := logger.With(zap.Stringer("cause", cause))
+	log.Debug("doing allocation")
+
+	var exclusions []ucan.Principal
+	for {
+		candidate, err := router.SelectStorageProvider(ctx, blob, routing.WithExclusions(exclusions...))
+		if err != nil {
+			log.Error("failed to select storage node", zap.Error(err))
+			return routing.StorageProviderInfo{}, nil, nil, blobcap.AllocateOk{}, err
+		}
+		log := logger.With(zap.Stringer("candidate", candidate.ID.DID()), zap.String("endpoint", candidate.Endpoint.String()))
+		log.Debug("selected storage provider candidate")
+
+		client, err := nodeProvider.Client(candidate.ID, candidate.Endpoint)
+		if err != nil {
+			log.Error("failed to create piri node", zap.Error(err))
+			return routing.StorageProviderInfo{}, nil, nil, blobcap.AllocateOk{}, err
+		}
+
+		res, inv, rcpt, err := client.Allocate(ctx, &piriclient.AllocateRequest{
+			Space:  space,
+			Digest: blob.Digest,
+			Size:   blob.Size,
+			Cause:  cause,
+		}, delegationFetcher{candidate.Proof})
+		if err != nil {
+			log.Warn("failed to allocate blob", zap.Error(err))
+			exclusions = append(exclusions, candidate.ID)
+			continue
+		}
+
+		err = writeAgentMessage(ctx, agentStore, []invocation.Invocation{inv}, []receipt.AnyReceipt{rcpt})
+		if err != nil {
+			log.Error("failed to write agent message", zap.Error(err))
+			exclusions = append(exclusions, candidate.ID)
+			continue
+		}
+
+		return candidate, inv, rcpt, blobcap.AllocateOk{Size: res.Size, Address: res.Address}, nil
+	}
+}
+
+// TODO(ash): move this into the client
+func writeAgentMessage(ctx context.Context, agentStore agent.Store, invs []invocation.Invocation, rcpts []receipt.AnyReceipt) error {
+	msg, err := message.Build(invs, rcpts)
+	if err != nil {
+		return fmt.Errorf("building agent message: %w", err)
+	}
+	idx := []agent.IndexEntry{}
+	for e, err := range agent.Index(msg) {
+		if err != nil {
+			return fmt.Errorf("indexing agent message: %w", err)
+		}
+		idx = append(idx, e)
+	}
+	src, err := io.ReadAll(car.Encode([]ipld.Link{msg.Root().Link()}, msg.Blocks()))
+	if err != nil {
+		return fmt.Errorf("reading CAR data: %w", err)
+	}
+	return agentStore.Write(ctx, msg, idx, src)
+}
+
+// Generates an invocation to put the blob to the storage provider. It MAY
+// return a receipt if the allocation result indicates that the provider already
+// has the blob.
+func genPut(blob types.Blob, allocInv invocation.Invocation, allocOK blobcap.AllocateOk, logger *zap.Logger) (invocation.Invocation, receipt.AnyReceipt, error) {
+	log := logger
+	log.Debug("generating put invocation")
+
+	// Derive the principal that will provide the blob from the blob digest.
+	// we do this so that any actor with a blob could issue a receipt for the
+	// `/http/put` invocation.
+	blobProvider, err := deriveDID(blob.Digest)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Create http/put invocation
+	fct := httpPutFact{
+		id:  blobProvider.DID().String(),
+		key: blobProvider.Encode(),
+	}
+
+	putInv, err := httpcap.Put.Invoke(
+		blobProvider,
+		blobProvider,
+		blobProvider.DID().String(),
+		httpcap.PutCaveats{
+			URL: types.Promise{
+				UcanAwait: types.Await{
+					Selector: ".out.ok.address.url",
+					Link:     allocInv.Link(),
+				},
+			},
+			Headers: types.Promise{
+				UcanAwait: types.Await{
+					Selector: ".out.ok.address.headers",
+					Link:     allocInv.Link(),
+				},
+			},
+			Body: httpcap.Body{
+				Digest: blob.Digest,
+				Size:   blob.Size,
+			},
+		},
+		// We encode the keys for the blob provider principal that can be used
+		// by the client to use in order to sign a receipt. Client could
+		// actually derive the same principal from the blob digest like we did
+		// above, however by embedding the keys we make API more flexible and
+		// could in the future generate one-off principals instead.
+		delegation.WithFacts([]ucan.FactBuilder{fct}),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invoking %q: %w", httpcap.PutAbility, err)
+	}
+
+	var putRcpt receipt.AnyReceipt
+
+	// If no address was provided we have a blob in store already and we can issue
+	// a receipt for the `/http/put` without requiring blob to be provided.
+	if allocOK.Address == nil {
+		log.Info("blob present on provider, issuing receipt for put")
+		putRcpt, err = receipt.Issue(
+			blobProvider,
+			result.Ok[httpcap.PutOk, failure.IPLDBuilderFailure](httpcap.PutOk{}),
+			ran.FromInvocation(putInv),
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("issuing %q receipt: %w", httpcap.PutAbility, err)
+		}
+	}
+
+	return putInv, putRcpt, nil
+}
+
+// Derives did:key principal from (blob) multihash that can be used to
+// sign ucan invocations/receipts for the the subject (blob) multihash.
+func deriveDID(digest multihash.Multihash) (principal.Signer, error) {
+	if len(digest) < 32 {
+		return nil, fmt.Errorf("expected []byte with length %d, got %d", ed25519.SeedSize, len(digest))
+	}
+	seed := digest[len(digest)-32:]
+	pk := ed25519.NewKeyFromSeed(seed)
+	return ed25519signer.FromRaw(pk)
+}
+
+// maybeAccept generates and possibly executes a `/blob/accept` invocation if
+// the provided put receipt is non-nil and non-failure.
+func maybeAccept(
+	ctx context.Context,
+	agentStore agent.Store,
+	blobRegistry blobregistry.Store,
+	nodeProvider piriclient.Provider,
+	providerInfo routing.StorageProviderInfo,
+	space ucan.Principal,
+	blob types.Blob,
+	putInv invocation.Invocation,
+	putRcpt receipt.AnyReceipt,
+	logger *zap.Logger,
+) (invocation.Invocation, receipt.AnyReceipt, error) {
+	log := logger
+	log.Debug("generating accept invocation")
+
+	c, err := nodeProvider.Client(providerInfo.ID, providerInfo.Endpoint)
+	if err != nil {
+		log.Error("failed to create piri client for accept", zap.Error(err))
+		return nil, nil, err
+	}
+
+	accReq := piriclient.AcceptRequest{
+		Space:  space.DID(),
+		Digest: blob.Digest,
+		Size:   blob.Size,
+		Put:    putInv.Link(),
+	}
+
+	accInv, err := c.AcceptInvocation(ctx, &accReq, delegationFetcher{providerInfo.Proof})
+	if err != nil {
+		log.Error("failed to create accept invocation", zap.Error(err))
+		return nil, nil, err
+	}
+
+	var accRcpt receipt.AnyReceipt
+
+	// If put has already succeeded, we can execute `/blob/accept` right away.
+	if putRcpt != nil {
+		_, x := result.Unwrap(putRcpt.Out())
+		if x == nil {
+			res, inv, rcpt, err := c.Accept(ctx, &accReq, delegationFetcher{providerInfo.Proof})
+			if err != nil {
+				log.Error("failed to execute accept on piri", zap.Error(err))
+				return nil, nil, err
+			}
+			log.Debug("blob accepted", zap.Stringer("site", res.Site))
+
+			err = writeAgentMessage(ctx, agentStore, []invocation.Invocation{inv}, []receipt.AnyReceipt{rcpt})
+			if err != nil {
+				log.Error("failed to write agent message for accept", zap.Error(err))
+				return nil, nil, err
+			}
+
+			cause, err := ipldutil.ToCID(inv.Link())
+			if err != nil {
+				return nil, nil, err
+			}
+
+			err = blobRegistry.Register(ctx, space.DID(), blob, cause)
+			if err != nil {
+				log.Error("failed to register blob", zap.Error(err))
+				return nil, nil, err
+			}
+
+			accInv = inv
+			accRcpt = rcpt
+		}
+	}
+
+	return accInv, accRcpt, nil
+}
+
 // httpPutFact contains the fact data for the http/put invocation.
+// TODO: should move to go-libstoracha
 type httpPutFact struct {
 	id  string
 	key []byte
@@ -40,7 +416,7 @@ type httpPutFact struct {
 func (hpf httpPutFact) ToIPLD() (map[string]datamodel.Node, error) {
 	n, err := qp.BuildMap(basicnode.Prototype.Any, 2, func(ma datamodel.MapAssembler) {
 		qp.MapEntry(ma, "id", qp.String(hpf.id))
-		qp.MapEntry(ma, "keys", qp.Map(2, func(ma datamodel.MapAssembler) {
+		qp.MapEntry(ma, "keys", qp.Map(1, func(ma datamodel.MapAssembler) {
 			qp.MapEntry(ma, hpf.id, qp.Bytes(hpf.key))
 		}))
 	})
@@ -51,249 +427,4 @@ func (hpf httpPutFact) ToIPLD() (map[string]datamodel.Node, error) {
 	return map[string]datamodel.Node{
 		"keys": n,
 	}, nil
-}
-
-// WithSpaceBlobAddMethod registers the space/blob/add handler.
-// This handler orchestrates blob storage - allocates on piri and returns upload URL.
-func WithSpaceBlobAddMethod(id *identity.Identity, stateStore state.StateStore, logger *zap.Logger) server.Option {
-	// Generate a blob provider identity for http/put
-	blobProvider, err := ed25519signer.Generate()
-	if err != nil {
-		panic(fmt.Sprintf("failed to generate blob provider identity: %v", err))
-	}
-
-	return server.WithServiceMethod(
-		spaceblobcap.AddAbility,
-		server.Provide(
-			spaceblobcap.Add,
-			func(ctx context.Context,
-				cap ucan.Capability[spaceblobcap.AddCaveats],
-				inv invocation.Invocation,
-				iCtx server.InvocationContext,
-			) (result.Result[spaceblobcap.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				spaceDIDStr := cap.With()
-				blobInfo := cap.Nb().Blob
-				digestHex := hex.EncodeToString(blobInfo.Digest)
-
-				logger.Debug("space/blob/add",
-					zap.String("space", spaceDIDStr),
-					zap.String("digest", digestHex[:16]),
-					zap.Uint64("size", blobInfo.Size))
-
-				// Parse the space DID
-				spaceDID, err := did.Parse(spaceDIDStr)
-				if err != nil {
-					return result.Error[spaceblobcap.AddOk](
-						failure.FromError(fmt.Errorf("invalid space DID: %w", err)),
-					), nil, nil
-				}
-
-				// Get the piri client (queries provider table on each request)
-				piriClient, err := piriClient(ctx, id, stateStore, logger)
-				if err != nil {
-					logger.Error("failed to get piri client", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk](
-						failure.FromError(fmt.Errorf("failed to get piri client: %w", err)),
-					), nil, nil
-				}
-				if piriClient == nil {
-					return result.Error[spaceblobcap.AddOk](
-						failure.FromError(fmt.Errorf("no storage provider available")),
-					), nil, nil
-				}
-
-				// Call piri's blob/allocate - returns invocation and receipt for use in effects
-				logger.Debug("calling piri blob/allocate")
-				allocResp, allocateInv, allocateRcpt, err := piriClient.Allocate(ctx, &piriclient.AllocateRequest{
-					Space:  spaceDID,
-					Digest: blobInfo.Digest,
-					Size:   blobInfo.Size,
-					Cause:  inv.Link(),
-				})
-				if err != nil {
-					logger.Error("piri allocate failed", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk](
-						failure.FromError(fmt.Errorf("piri allocate failed: %w", err)),
-					), nil, nil
-				}
-
-				logger.Debug("piri allocate succeeded",
-					zap.Uint64("allocatedSize", allocResp.Size),
-					zap.Uint64("requestedSize", blobInfo.Size),
-					zap.String("invCID", allocateInv.Link().String()))
-
-				// Store the allocation for later reference
-				var uploadURL *url.URL
-				if allocResp.Address != nil {
-					uploadURL = &allocResp.Address.URL
-				} else {
-					firstProvider, err := stateStore.GetFirstProvider(ctx)
-					if err != nil {
-						logger.Error("failed to get first provider", zap.Error(err))
-					} else if firstProvider != nil {
-						uploadURL = firstProvider.Endpoint
-					}
-				}
-
-				alloc := &state.Allocation{
-					Space:     spaceDID,
-					Digest:    blobInfo.Digest,
-					Size:      blobInfo.Size,
-					Cause:     inv.Link(),
-					ExpiresAt: time.Now().Add(24 * time.Hour),
-					PiriNode:  piriClient.PiriDID().String(),
-					UploadURL: uploadURL,
-				}
-				if err := stateStore.PutAllocation(ctx, digestHex, alloc); err != nil {
-					logger.Error("failed to store allocation", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk](
-						failure.FromError(fmt.Errorf("storing allocation: %w", err)),
-					), nil, nil
-				}
-
-				// Use piri's invocation and receipt directly (returned from Allocate call above)
-				// This ensures the invocation CID in effects matches what piri signed
-				piriDID := piriClient.PiriDID()
-
-				// Create http/put invocation
-				fct := httpPutFact{
-					id:  blobProvider.DID().String(),
-					key: blobProvider.Encode(),
-				}
-				httpPutInv, err := httpcap.Put.Invoke(
-					blobProvider,
-					blobProvider,
-					blobProvider.DID().String(),
-					httpcap.PutCaveats{
-						URL: captypes.Promise{
-							UcanAwait: captypes.Await{
-								Selector: ".out.ok.address.url",
-								Link:     allocateRcpt.Root().Link(),
-							},
-						},
-						Headers: captypes.Promise{
-							UcanAwait: captypes.Await{
-								Selector: ".out.ok.address.headers",
-								Link:     allocateRcpt.Root().Link(),
-							},
-						},
-						Body: httpcap.Body{
-							Digest: blobInfo.Digest,
-							Size:   blobInfo.Size,
-						},
-					},
-					delegation.WithFacts([]ucan.FactBuilder{fct}),
-				)
-				if err != nil {
-					return nil, nil, fmt.Errorf("creating http put invocation: %w", err)
-				}
-
-				// Create blob/accept invocation
-				// Use WithNoExpiration so the invocation CID is deterministic
-				// (otherwise each invocation gets a different expiration timestamp)
-				acceptInv, err := blobcap.Accept.Invoke(
-					iCtx.ID(),
-					piriDID,
-					piriDID.String(),
-					blobcap.AcceptCaveats{
-						Space: spaceDID,
-						Blob: captypes.Blob{
-							Digest: blobInfo.Digest,
-							Size:   blobInfo.Size,
-						},
-						Put: blobcap.Promise{
-							UcanAwait: blobcap.Await{
-								Selector: ".out.ok",
-								Link:     httpPutInv.Root().Link(),
-							},
-						},
-					},
-					delegation.WithNoExpiration(),
-				)
-				if err != nil {
-					return nil, nil, fmt.Errorf("creating accept invocation: %w", err)
-				}
-
-				// Store the accept invocation link in the allocation so we can use it
-				// as the key when storing the receipt later
-				alloc.AcceptInvLink = acceptInv.Link()
-				if err := stateStore.PutAllocation(ctx, digestHex, alloc); err != nil {
-					logger.Error("failed to update allocation", zap.Error(err))
-					return result.Error[spaceblobcap.AddOk](
-						failure.FromError(fmt.Errorf("updating allocation: %w", err)),
-					), nil, nil
-				}
-
-				// Create ucan/conclude invocation with allocate receipt
-				concludeInv, err := ucancap.Conclude.Invoke(
-					iCtx.ID(),
-					piriDID,
-					cap.With(),
-					ucancap.ConcludeCaveats{
-						Receipt: allocateRcpt.Root().Link(),
-					},
-				)
-				if err != nil {
-					return nil, nil, fmt.Errorf("creating conclude invocation: %w", err)
-				}
-				// Attach the allocate receipt blocks to the conclude invocation
-				for blk, err := range allocateRcpt.Blocks() {
-					if err != nil {
-						return nil, nil, fmt.Errorf("getting allocate receipt block: %w", err)
-					}
-					concludeInv.Attach(blk)
-				}
-
-				// Build fork effects with all the tasks
-				forks := []fx.Effect{
-					fx.FromInvocation(allocateInv),
-					fx.FromInvocation(concludeInv),
-					fx.FromInvocation(httpPutInv),
-					fx.FromInvocation(acceptInv),
-				}
-				fxs := fx.NewEffects(fx.WithFork(forks...))
-
-				// Return success with the Site promise
-				ok := spaceblobcap.AddOk{
-					Site: captypes.Promise{
-						UcanAwait: captypes.Await{
-							Selector: ".out.ok.site",
-							Link:     acceptInv.Root().Link(),
-						},
-					},
-				}
-
-				logger.Debug("returning success with effects")
-				return result.Ok[spaceblobcap.AddOk, failure.IPLDBuilderFailure](ok), fxs, nil
-			},
-		),
-	)
-}
-
-// piriClient queries the provider table and creates a piri client on-demand.
-// This ensures we always use the most up-to-date provider information.
-func piriClient(ctx context.Context, identity *identity.Identity, stateStore state.StateStore, logger *zap.Logger) (*piriclient.Client, error) {
-	// Query provider from DynamoDB (delegator-provider-info table)
-	provider, err := stateStore.GetFirstProvider(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get provider from state: %w", err)
-	}
-
-	if provider == nil || provider.DID == (did.DID{}) || provider.Endpoint == nil {
-		logger.Debug("no storage provider registered")
-		return nil, nil
-	}
-
-	// Create a new piri client for this provider
-	client, err := piriclient.New(provider.Endpoint, provider.DID, identity.Signer, stateStore, logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create piri client: %w", err)
-	}
-
-	logger.Debug("created piri client from provider info",
-		zap.String("did", provider.DID.String()),
-		zap.String("endpoint", provider.Endpoint.String()),
-	)
-
-	return client, nil
 }

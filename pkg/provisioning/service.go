@@ -45,13 +45,13 @@ func NewService(providers []ServiceDID, consumerStore consumer.Store, subscripti
 
 // GetConsumer returns the consumer record for a given service provider and
 // consumer (space). It may return [consumer.ErrConsumerNotFound].
-func (s *Service) GetConsumer(ctx context.Context, provider ServiceDID, space SpaceDID) (consumer.ConsumerRecord, error) {
+func (s *Service) GetConsumer(ctx context.Context, provider ServiceDID, space SpaceDID) (consumer.Record, error) {
 	return s.consumerStore.Get(ctx, provider, space)
 }
 
 // GetSubscription returns the subscription record for a given service
 // provider. It may return [subscription.ErrSubscriptionNotFound].
-func (s *Service) GetSubscription(ctx context.Context, provider ServiceDID, subscription SubscriptionID) (subscription.SubscriptionRecord, error) {
+func (s *Service) GetSubscription(ctx context.Context, provider ServiceDID, subscription SubscriptionID) (subscription.Record, error) {
 	return s.subscriptionStore.Get(ctx, provider, subscription)
 }
 

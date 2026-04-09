@@ -17,14 +17,14 @@ import (
 
 type Store struct {
 	mutex     sync.RWMutex
-	providers map[did.DID]storageprovider.StorageProviderRecord
+	providers map[did.DID]storageprovider.Record
 }
 
 var _ storageprovider.Store = (*Store)(nil)
 
 func New() *Store {
 	return &Store{
-		providers: map[did.DID]storageprovider.StorageProviderRecord{},
+		providers: map[did.DID]storageprovider.Record{},
 	}
 }
 
@@ -38,16 +38,16 @@ func (s *Store) Delete(ctx context.Context, providerID did.DID) error {
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, providerID did.DID) (storageprovider.StorageProviderRecord, error) {
+func (s *Store) Get(ctx context.Context, providerID did.DID) (storageprovider.Record, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	if sp, ok := s.providers[providerID]; ok {
 		return sp, nil
 	}
-	return storageprovider.StorageProviderRecord{}, storageprovider.ErrStorageProviderNotFound
+	return storageprovider.Record{}, storageprovider.ErrStorageProviderNotFound
 }
 
-func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption) (store.Page[storageprovider.StorageProviderRecord], error) {
+func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption) (store.Page[storageprovider.Record], error) {
 	cfg := storageprovider.ListConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -62,7 +62,7 @@ func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption)
 	defer s.mutex.RUnlock()
 
 	records := slices.Collect(maps.Values(s.providers))
-	slices.SortFunc(records, func(a, b storageprovider.StorageProviderRecord) int {
+	slices.SortFunc(records, func(a, b storageprovider.Record) int {
 		return strings.Compare(a.Provider.String(), b.Provider.String())
 	})
 
@@ -82,23 +82,23 @@ func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption)
 		cursor = &c
 	}
 
-	return store.Page[storageprovider.StorageProviderRecord]{Results: records, Cursor: cursor}, nil
+	return store.Page[storageprovider.Record]{Results: records, Cursor: cursor}, nil
 }
 
-func (s *Store) Put(ctx context.Context, providerID did.DID, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight int) error {
+func (s *Store) Put(ctx context.Context, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if sp, ok := s.providers[providerID]; ok {
+	if sp, ok := s.providers[proof.Issuer().DID()]; ok {
 		sp.Endpoint = endpoint
 		sp.Proof = proof
 		sp.Weight = weight
 		sp.ReplicationWeight = replicationWeight
 		sp.UpdatedAt = time.Now()
-		s.providers[providerID] = sp
+		s.providers[proof.Issuer().DID()] = sp
 		return nil
 	}
-	s.providers[providerID] = storageprovider.StorageProviderRecord{
-		Provider:          providerID,
+	s.providers[proof.Issuer().DID()] = storageprovider.Record{
+		Provider:          proof.Issuer().DID(),
 		Endpoint:          endpoint,
 		Proof:             proof,
 		Weight:            weight,
