@@ -85,20 +85,20 @@ func (s *Store) List(ctx context.Context, options ...storageprovider.ListOption)
 	return store.Page[storageprovider.Record]{Results: records, Cursor: cursor}, nil
 }
 
-func (s *Store) Put(ctx context.Context, providerID did.DID, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error {
+func (s *Store) Put(ctx context.Context, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if sp, ok := s.providers[providerID]; ok {
+	if sp, ok := s.providers[proof.Issuer().DID()]; ok {
 		sp.Endpoint = endpoint
 		sp.Proof = proof
 		sp.Weight = weight
 		sp.ReplicationWeight = replicationWeight
 		sp.UpdatedAt = time.Now()
-		s.providers[providerID] = sp
+		s.providers[proof.Issuer().DID()] = sp
 		return nil
 	}
-	s.providers[providerID] = storageprovider.Record{
-		Provider:          providerID,
+	s.providers[proof.Issuer().DID()] = storageprovider.Record{
+		Provider:          proof.Issuer().DID(),
 		Endpoint:          endpoint,
 		Proof:             proof,
 		Weight:            weight,

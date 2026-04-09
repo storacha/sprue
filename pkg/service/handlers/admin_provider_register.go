@@ -45,12 +45,6 @@ func AdminProviderRegisterHandler(id *identity.Identity, providerStore storagepr
 		iCtx server.InvocationContext,
 	) (result.Result[provider.RegisterOk, failure.IPLDBuilderFailure], fx.Effects, error) {
 		args := cap.Nb()
-		if inv.Issuer().DID() != id.Signer.DID() && inv.Issuer().DID() != args.Provider {
-			log.Warn("Unauthorized access attempt", zap.Stringer("issuer", inv.Issuer().DID()))
-			return result.Error[provider.RegisterOk, failure.IPLDBuilderFailure](
-				errors.New("Unauthorized", "only the service identity or the provider itself can register a provider"),
-			), nil, nil
-		}
 
 		endpoint, err := url.Parse(args.Endpoint)
 		if err != nil {
@@ -70,20 +64,27 @@ func AdminProviderRegisterHandler(id *identity.Identity, providerStore storagepr
 			return nil, nil, fmt.Errorf("creating proof delegation view: %w", err)
 		}
 
-		_, err = providerStore.Get(ctx, args.Provider)
+		if inv.Issuer().DID() != id.Signer.DID() && inv.Issuer().DID() != proof.Issuer().DID() {
+			log.Warn("Unauthorized access attempt", zap.Stringer("issuer", inv.Issuer().DID()))
+			return result.Error[provider.RegisterOk, failure.IPLDBuilderFailure](
+				errors.New("Unauthorized", "only the service identity or the provider itself can register a provider"),
+			), nil, nil
+		}
+
+		_, err = providerStore.Get(ctx, proof.Issuer().DID())
 		if err != nil {
 			if !errors.Is(err, storageprovider.ErrStorageProviderNotFound) {
 				log.Error("Failed to get existing provider", zap.Error(err))
 				return nil, nil, err
 			}
 		} else {
-			log.Warn("Provider already registered", zap.Stringer("provider", args.Provider))
+			log.Warn("Provider already registered", zap.Stringer("provider", proof.Issuer().DID()))
 			return result.Error[provider.RegisterOk, failure.IPLDBuilderFailure](
 				errors.New("ProviderAlreadyRegistered", "a provider with this DID is already registered"),
 			), nil, nil
 		}
 
-		err = providerStore.Put(ctx, args.Provider, *endpoint, proof, initialWeight, &initialReplicationWeight)
+		err = providerStore.Put(ctx, *endpoint, proof, initialWeight, &initialReplicationWeight)
 		if err != nil {
 			log.Error("Failed to register provider", zap.Error(err))
 			return nil, nil, err

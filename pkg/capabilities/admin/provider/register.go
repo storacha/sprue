@@ -5,7 +5,6 @@ import (
 	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/core/result/ok"
 	"github.com/storacha/go-ucanto/core/schema"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/validator"
 
 	"github.com/storacha/go-libstoracha/capabilities/types"
@@ -14,7 +13,6 @@ import (
 const RegisterAbility = "admin/provider/register"
 
 type RegisterCaveats struct {
-	Provider did.DID
 	Endpoint string
 	Proof    ipld.Link
 }

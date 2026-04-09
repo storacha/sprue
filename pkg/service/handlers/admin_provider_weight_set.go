@@ -49,7 +49,7 @@ func AdminProviderWeightSetHandler(id *identity.Identity, providerStore storagep
 			return nil, nil, err
 		}
 
-		err = providerStore.Put(ctx, args.Provider, p.Endpoint, p.Proof, args.Weight, &args.ReplicationWeight)
+		err = providerStore.Put(ctx, p.Endpoint, p.Proof, args.Weight, &args.ReplicationWeight)
 		if err != nil {
 			log.Error("Failed to update provider weights", zap.Error(err))
 			return nil, nil, err

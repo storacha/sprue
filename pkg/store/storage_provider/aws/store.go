@@ -65,7 +65,7 @@ func (s *Store) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) Put(ctx context.Context, providerID did.DID, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error {
+func (s *Store) Put(ctx context.Context, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error {
 	proofStr, err := delegation.Format(proof)
 	if err != nil {
 		return fmt.Errorf("formatting proof: %w", err)
@@ -74,7 +74,7 @@ func (s *Store) Put(ctx context.Context, providerID did.DID, endpoint url.URL, p
 	now := time.Now().UTC().Format(timeutil.SimplifiedISO8601)
 	input := dynamodb.UpdateItemInput{
 		TableName: aws.String(s.tableName),
-		Key:       map[string]types.AttributeValue{"provider": &types.AttributeValueMemberS{Value: providerID.String()}},
+		Key:       map[string]types.AttributeValue{"provider": &types.AttributeValueMemberS{Value: proof.Issuer().DID().String()}},
 		UpdateExpression: aws.String(
 			"SET #endpoint = :endpoint, #proof = :proof, #weight = :weight, #replicationWeight = :replicationWeight, #insertedAt = if_not_exists(#insertedAt, :now), #updatedAt = :now",
 		),

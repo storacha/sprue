@@ -1,5 +1,4 @@
 type RegisterCaveats struct {
-  provider DID
   endpoint String
   proof    Link
 }
@@ -15,7 +14,7 @@ type DeregisterOk struct {}
 type ListCaveats struct {}
 
 type Provider struct {
-  id DID
+  ID DID (rename "id")
   endpoint String
   weight Int
   replicationWeight Int

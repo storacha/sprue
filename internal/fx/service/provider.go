@@ -8,7 +8,6 @@ import (
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/service"
-	"github.com/storacha/sprue/pkg/state"
 	"github.com/storacha/sprue/pkg/store/agent"
 	"github.com/storacha/sprue/pkg/store/delegation"
 )
@@ -23,7 +22,6 @@ type ServiceParams struct {
 	fx.In
 
 	Identity        *identity.Identity
-	Store           state.StateStore
 	AgentStore      agent.Store
 	DelegationStore delegation.Store
 	IndexerClient   *indexerclient.Client `optional:"true"`
@@ -33,5 +31,5 @@ type ServiceParams struct {
 
 // NewService creates the UCAN service with all handlers registered.
 func NewService(p ServiceParams) (*service.Service, error) {
-	return service.New(p.Identity, p.Store, p.AgentStore, p.DelegationStore, p.IndexerClient, p.Logger, p.Options...)
+	return service.New(p.Identity, p.AgentStore, p.DelegationStore, p.IndexerClient, p.Logger, p.Options...)
 }

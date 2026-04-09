@@ -94,13 +94,12 @@ func New(serviceID ucan.Principal, options ...Option) (*Client, error) {
 	return &c, nil
 }
 
-func (c *Client) AdminProviderRegister(ctx context.Context, signer ucan.Signer, providerID did.DID, endpoint string, proof delegation.Delegation, options ...delegation.Option) (provider.RegisterOk, error) {
+func (c *Client) AdminProviderRegister(ctx context.Context, signer ucan.Signer, endpoint string, proof delegation.Delegation, options ...delegation.Option) (provider.RegisterOk, error) {
 	inv, err := provider.Register.Invoke(
 		signer,
 		c.Connection.ID(),
 		c.Connection.ID().DID().String(),
 		provider.RegisterCaveats{
-			Provider: providerID,
 			Endpoint: endpoint,
 			Proof:    proof.Link(),
 		},
