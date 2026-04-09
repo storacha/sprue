@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/storacha/sprue/internal/config"
+
 	"github.com/storacha/sprue/pkg/store/agent"
 	awsagent "github.com/storacha/sprue/pkg/store/agent/aws"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
@@ -101,13 +102,13 @@ var Module = fx.Module("aws-store",
 	),
 )
 
-func NewDynamoDBClient(cfg *config.Config, logger *zap.Logger) (*dynamodb.Client, error) {
+func NewDynamoDBClient(cfg config.DynamoDBConfig, logger *zap.Logger) (*dynamodb.Client, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
-		awsconfig.WithRegion(cfg.DynamoDB.Region),
+		awsconfig.WithRegion(cfg.Region),
 	}
 
-	if cfg.DynamoDB.Endpoint != "" {
-		opts = append(opts, awsconfig.WithBaseEndpoint(cfg.DynamoDB.Endpoint))
+	if cfg.Endpoint != "" {
+		opts = append(opts, awsconfig.WithBaseEndpoint(cfg.Endpoint))
 		opts = append(opts, awsconfig.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
 				AccessKeyID:     "dummy",
@@ -123,19 +124,19 @@ func NewDynamoDBClient(cfg *config.Config, logger *zap.Logger) (*dynamodb.Client
 
 	client := dynamodb.NewFromConfig(awsCfg)
 	logger.Info("initialized DynamoDB client",
-		zap.String("endpoint", cfg.DynamoDB.Endpoint),
-		zap.String("region", cfg.DynamoDB.Region),
+		zap.String("endpoint", cfg.Endpoint),
+		zap.String("region", cfg.Region),
 	)
 	return client, nil
 }
 
-func NewS3Client(cfg *config.Config, logger *zap.Logger) (*s3.Client, error) {
+func NewS3Client(cfg config.S3Config, logger *zap.Logger) (*s3.Client, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
-		awsconfig.WithRegion(cfg.S3.Region),
+		awsconfig.WithRegion(cfg.Region),
 	}
 
-	if cfg.S3.Endpoint != "" {
-		opts = append(opts, awsconfig.WithBaseEndpoint(cfg.S3.Endpoint))
+	if cfg.Endpoint != "" {
+		opts = append(opts, awsconfig.WithBaseEndpoint(cfg.Endpoint))
 		opts = append(opts, awsconfig.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
 				AccessKeyID:     "minioadmin",
@@ -150,19 +151,19 @@ func NewS3Client(cfg *config.Config, logger *zap.Logger) (*s3.Client, error) {
 	}
 
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		if cfg.S3.Endpoint != "" {
+		if cfg.Endpoint != "" {
 			o.UsePathStyle = true
 		}
 	})
 	logger.Info("initialized S3 client",
-		zap.String("endpoint", cfg.S3.Endpoint),
-		zap.String("region", cfg.S3.Region),
+		zap.String("endpoint", cfg.Endpoint),
+		zap.String("region", cfg.Region),
 	)
 	return client, nil
 }
 
-func NewAgentStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client, s3 *s3.Client) *awsagent.Store {
-	store := awsagent.New(dynamo, cfg.DynamoDB.AgentIndexTable, s3, cfg.S3.AgentMessageBucket)
+func NewAgentStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, s3Cfg config.S3Config, dynamo *dynamodb.Client, s3 *s3.Client) *awsagent.Store {
+	store := awsagent.New(dynamo, dynamoCfg.AgentIndexTable, s3, s3Cfg.AgentMessageBucket)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -174,8 +175,8 @@ func NewAgentStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client,
 	return store
 }
 
-func NewBlobRegistry(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client, consumerStore consumer.Store, spaceDiff *awsspacediff.Store, spaceMetrics *awsmetrics.SpaceStore, adminMetrics *awsmetrics.Store) *awsblobregistry.Store {
-	store := awsblobregistry.New(dynamo, cfg.DynamoDB.BlobRegistryTable, consumerStore, spaceDiff, spaceMetrics, adminMetrics)
+func NewBlobRegistry(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client, consumerStore consumer.Store, spaceDiff *awsspacediff.Store, spaceMetrics *awsmetrics.SpaceStore, adminMetrics *awsmetrics.Store) *awsblobregistry.Store {
+	store := awsblobregistry.New(dynamo, dynamoCfg.BlobRegistryTable, consumerStore, spaceDiff, spaceMetrics, adminMetrics)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -184,8 +185,8 @@ func NewBlobRegistry(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Clien
 	return store
 }
 
-func NewConsumerStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awsconsumer.Store {
-	store := awsconsumer.New(dynamo, cfg.DynamoDB.ConsumerTable)
+func NewConsumerStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsconsumer.Store {
+	store := awsconsumer.New(dynamo, dynamoCfg.ConsumerTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -194,8 +195,8 @@ func NewConsumerStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Clie
 	return store
 }
 
-func NewCustomerStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awscustomer.Store {
-	store := awscustomer.New(dynamo, cfg.DynamoDB.CustomerTable)
+func NewCustomerStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awscustomer.Store {
+	store := awscustomer.New(dynamo, dynamoCfg.CustomerTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -204,8 +205,8 @@ func NewCustomerStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Clie
 	return store
 }
 
-func NewDelegationStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client, s3Client *s3.Client) *awsdelegation.Store {
-	store := awsdelegation.New(dynamo, cfg.DynamoDB.DelegationTable, s3Client, cfg.S3.DelegationBucket)
+func NewDelegationStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, s3Cfg config.S3Config, dynamo *dynamodb.Client, s3Client *s3.Client) *awsdelegation.Store {
+	store := awsdelegation.New(dynamo, dynamoCfg.DelegationTable, s3Client, s3Cfg.DelegationBucket)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -214,8 +215,8 @@ func NewDelegationStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Cl
 	return store
 }
 
-func NewSpaceMetricsStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awsmetrics.SpaceStore {
-	store := awsmetrics.NewSpaceStore(dynamo, cfg.DynamoDB.SpaceMetricsTable)
+func NewSpaceMetricsStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsmetrics.SpaceStore {
+	store := awsmetrics.NewSpaceStore(dynamo, dynamoCfg.SpaceMetricsTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -224,8 +225,8 @@ func NewSpaceMetricsStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.
 	return store
 }
 
-func NewAdminMetricsStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awsmetrics.Store {
-	store := awsmetrics.New(dynamo, cfg.DynamoDB.AdminMetricsTable)
+func NewAdminMetricsStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsmetrics.Store {
+	store := awsmetrics.New(dynamo, dynamoCfg.AdminMetricsTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -234,8 +235,8 @@ func NewAdminMetricsStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.
 	return store
 }
 
-func NewReplicaStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awsreplica.Store {
-	store := awsreplica.New(dynamo, cfg.DynamoDB.ReplicaTable)
+func NewReplicaStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsreplica.Store {
+	store := awsreplica.New(dynamo, dynamoCfg.ReplicaTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -244,8 +245,8 @@ func NewReplicaStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Clien
 	return store
 }
 
-func NewRevocationStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awsrevocation.Store {
-	store := awsrevocation.New(dynamo, cfg.DynamoDB.RevocationTable)
+func NewRevocationStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsrevocation.Store {
+	store := awsrevocation.New(dynamo, dynamoCfg.RevocationTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -254,8 +255,8 @@ func NewRevocationStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Cl
 	return store
 }
 
-func NewSpaceDiffStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awsspacediff.Store {
-	store := awsspacediff.New(dynamo, cfg.DynamoDB.SpaceDiffTable)
+func NewSpaceDiffStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsspacediff.Store {
+	store := awsspacediff.New(dynamo, dynamoCfg.SpaceDiffTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -264,8 +265,8 @@ func NewSpaceDiffStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Cli
 	return store
 }
 
-func NewStorageProviderStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awsstorageprovider.Store {
-	store := awsstorageprovider.New(dynamo, cfg.DynamoDB.StorageProviderTable)
+func NewStorageProviderStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awsstorageprovider.Store {
+	store := awsstorageprovider.New(dynamo, dynamoCfg.StorageProviderTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -274,8 +275,8 @@ func NewStorageProviderStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamo
 	return store
 }
 
-func NewSubscriptionStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client) *awssubscription.Store {
-	store := awssubscription.New(dynamo, cfg.DynamoDB.SubscriptionTable)
+func NewSubscriptionStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, dynamo *dynamodb.Client) *awssubscription.Store {
+	store := awssubscription.New(dynamo, dynamoCfg.SubscriptionTable)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -284,8 +285,8 @@ func NewSubscriptionStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.
 	return store
 }
 
-func NewUploadStore(lc fx.Lifecycle, cfg *config.Config, dynamo *dynamodb.Client, s3Client *s3.Client) *awsupload.Store {
-	store := awsupload.New(dynamo, cfg.DynamoDB.UploadTable, s3Client, cfg.S3.UploadShardsBucket)
+func NewUploadStore(lc fx.Lifecycle, dynamoCfg config.DynamoDBConfig, s3Cfg config.S3Config, dynamo *dynamodb.Client, s3Client *s3.Client) *awsupload.Store {
+	store := awsupload.New(dynamo, dynamoCfg.UploadTable, s3Client, s3Cfg.UploadShardsBucket)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
