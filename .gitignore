@@ -33,3 +33,6 @@ go.work.sum
 
 # the sprue binary
 sprue
+
+# local sprue config
+config.yaml

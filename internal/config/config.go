@@ -9,17 +9,41 @@ import (
 
 // Config holds the sprue service configuration.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Identity IdentityConfig `mapstructure:"identity"`
-	Indexer  IndexerConfig  `mapstructure:"indexer"`
-	DynamoDB DynamoDBConfig `mapstructure:"dynamodb"`
-	Log      LogConfig      `mapstructure:"log"`
+	Deployment DeploymentConfig `mapstructure:"deployment"`
+	Server     ServerConfig     `mapstructure:"server"`
+	Identity   IdentityConfig   `mapstructure:"identity"`
+	Indexer    IndexerConfig    `mapstructure:"indexer"`
+	DynamoDB   DynamoDBConfig   `mapstructure:"dynamodb"`
+	S3         S3Config         `mapstructure:"s3"`
+	Log        LogConfig        `mapstructure:"log"`
+	Mailer     MailerConfig     `mapstructure:"mailer"`
+}
+
+type DeploymentConfig struct {
+	// Environment is the deployment environment name (e.g., staging, production).
+	Environment string `mapstructure:"environment"`
+	// AllowProvisionWithoutPaymentPlan indicates whether the service allows users
+	// to provision a space without an active payment plan. It should only be true
+	// in development or testing environments.
+	AllowProvisionWithoutPaymentPlan bool `mapstructure:"allow_provision_without_payment_plan"`
+	// MaxReplicas is the maximum number of replicas that can be allocated for a
+	// given blob. It includes the original blob that was uploaded, so only values
+	// above 1 will allow users to have multiple copies of their data.
+	MaxReplicas uint `mapstructure:"max_replicas"`
+	// InMemoryStores indicates whether to use in-memory stores instead of
+	// DynamoDB/S3. All data will be lost on service restart when this is true, so
+	// it should only be used for development or testing. It overrides all other
+	// store-related config when true.
+	InMemoryStores bool `mapstructure:"in_memory_stores"`
 }
 
 // ServerConfig holds HTTP server settings.
 type ServerConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
+	// PublicURL is the public URL for the service, used in email links and UCANs.
+	// If not set, it will be derived from Host and Port.
+	PublicURL string `mapstructure:"public_url"`
 }
 
 // IdentityConfig holds service identity settings.
@@ -28,7 +52,7 @@ type IdentityConfig struct {
 	// Takes precedence over PrivateKey if set.
 	KeyFile string `mapstructure:"key_file"`
 
-	// PrivateKey is the base64-encoded ed25519 private key for service identity.
+	// PrivateKey is the multibase base64-encoded ed25519 private key for service identity.
 	// If empty and KeyFile is not set, a key will be generated at startup.
 	PrivateKey string `mapstructure:"private_key"`
 
@@ -55,29 +79,56 @@ type DynamoDBConfig struct {
 	// Region is the AWS region for DynamoDB.
 	Region string `mapstructure:"region"`
 
-	// ProviderTable is the table name for provider info.
-	ProviderTable string `mapstructure:"provider_table"`
+	AgentIndexTable      string `mapstructure:"agent_index_table"`
+	BlobRegistryTable    string `mapstructure:"blob_registry_table"`
+	ConsumerTable        string `mapstructure:"consumer_table"`
+	CustomerTable        string `mapstructure:"customer_table"`
+	DelegationTable      string `mapstructure:"delegation_table"`
+	SpaceMetricsTable    string `mapstructure:"space_metrics_table"`
+	AdminMetricsTable    string `mapstructure:"admin_metrics_table"`
+	ReplicaTable         string `mapstructure:"replica_table"`
+	RevocationTable      string `mapstructure:"revocation_table"`
+	StorageProviderTable string `mapstructure:"storage_provider_table"`
+	SubscriptionTable    string `mapstructure:"subscription_table"`
+	SpaceDiffTable       string `mapstructure:"space_diff_table"`
+	UploadTable          string `mapstructure:"upload_table"`
+}
 
-	// AllocationsTable is the table name for blob allocations.
-	AllocationsTable string `mapstructure:"allocations_table"`
+// S3Config holds S3 settings.
+type S3Config struct {
+	// Endpoint is the S3 endpoint (for local development).
+	Endpoint string `mapstructure:"endpoint"`
 
-	// ReceiptsTable is the table name for UCAN receipts.
-	ReceiptsTable string `mapstructure:"receipts_table"`
+	// Region is the AWS region for S3.
+	Region string `mapstructure:"region"`
 
-	// AuthRequestsTable is the table name for auth requests.
-	AuthRequestsTable string `mapstructure:"auth_requests_table"`
-
-	// ProvisioningsTable is the table name for space provisionings.
-	ProvisioningsTable string `mapstructure:"provisionings_table"`
-
-	// UploadsTable is the table name for uploads.
-	UploadsTable string `mapstructure:"uploads_table"`
+	AgentMessageBucket string `mapstructure:"agent_message_bucket"`
+	DelegationBucket   string `mapstructure:"delegation_bucket"`
+	UploadShardsBucket string `mapstructure:"upload_shards_bucket"`
 }
 
 // LogConfig holds logging settings.
 type LogConfig struct {
 	// Level controls logging verbosity (debug, info, warn, error).
 	Level string `mapstructure:"level"`
+}
+
+type MailerConfig struct {
+	// Type specifies the mailer implementation to use (e.g., "postmark", "smtp", "nop").
+	Type string `mapstructure:"type"`
+	// Email address to use as the default sender for outgoing emails.
+	Sender string `mapstructure:"sender"`
+	// Subject configures the email subject line for outgoing emails. Note: this
+	// is unused for some mailer types.
+	Subject string `mapstructure:"subject"`
+	// Postmark settings
+	PostmarkToken string `mapstructure:"postmark_token"`
+	// Address of the SMTP server (e.g., "smtp.example.com:25")
+	SMTPAddr string `mapstructure:"smtp_addr"`
+	// Username for SMTP authentication
+	SMTPAuthUser string `mapstructure:"smtp_auth_user"`
+	// Secret for CRAMMD5 SMTP authentication
+	SMTPAuthSecret string `mapstructure:"smtp_auth_secret"`
 }
 
 // SetDefaults configures default values for viper.
@@ -99,11 +150,32 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("dynamodb.provisionings_table", "upload-provisionings")
 	v.SetDefault("dynamodb.uploads_table", "upload-uploads")
 
+	v.SetDefault("dynamodb.agent_index_table", "agent-index")
+	v.SetDefault("dynamodb.blob_registry_table", "blob-registry")
+	v.SetDefault("dynamodb.consumer_table", "consumer")
+	v.SetDefault("dynamodb.customer_table", "customer")
+	v.SetDefault("dynamodb.delegation_table", "delegation")
+	v.SetDefault("dynamodb.space_metrics_table", "space-metrics")
+	v.SetDefault("dynamodb.admin_metrics_table", "admin-metrics")
+	v.SetDefault("dynamodb.replica_table", "replica")
+	v.SetDefault("dynamodb.revocation_table", "revocation")
+	v.SetDefault("dynamodb.storage_provider_table", "storage-provider")
+	v.SetDefault("dynamodb.subscription_table", "subscription")
+	v.SetDefault("dynamodb.space_diff_table", "space-diff")
+	v.SetDefault("dynamodb.upload_table", "upload")
+
+	// S3 defaults
+	v.SetDefault("s3.endpoint", "http://minio:9000")
+	v.SetDefault("s3.region", "us-west-1")
+	v.SetDefault("s3.agent_message_bucket", "agent-message")
+	v.SetDefault("s3.delegation_bucket", "delegation")
+	v.SetDefault("s3.upload_shards_bucket", "upload-shards")
+
 	// Log defaults
 	v.SetDefault("log.level", "info")
 }
 
-// BindEnvVars sets up environment variable binding with UPLOAD_ prefix.
+// BindEnvVars sets up environment variable binding with SPRUE_ prefix.
 func BindEnvVars(v *viper.Viper) {
 	v.SetEnvPrefix("SPRUE")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

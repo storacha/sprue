@@ -14,19 +14,19 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/principal"
+	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
-
 	"github.com/storacha/sprue/pkg/indexerclient"
+	"github.com/storacha/sprue/pkg/internal/ipldutil"
+	"github.com/storacha/sprue/pkg/lib/errors"
+	"github.com/storacha/sprue/pkg/provisioning"
+	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 )
 
-// SpaceIndexAddService defines the interface for the space/index/add handler.
-type SpaceIndexAddService interface {
-	ID() principal.Signer
-	IndexerClient() *indexerclient.Client
-	Logger() *zap.Logger
-}
+const IndexNotFoundErrorName = "IndexNotFound"
+
+var ErrIndexNotFound = errors.New(IndexNotFoundErrorName, "index not found in space")
 
 // extractRetrievalAuth extracts the space/content/retrieve delegation from the
 // invocation facts. Guppy includes this delegation so the indexer can fetch
@@ -62,59 +62,87 @@ func extractRetrievalAuth(inv invocation.Invocation) (delegation.Delegation, err
 
 // WithSpaceIndexAddMethod registers the space/index/add handler.
 // This handler publishes index claims to the indexer service.
-func WithSpaceIndexAddMethod(s SpaceIndexAddService) server.Option {
+func WithSpaceIndexAddMethod(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Store, indexerClient *indexerclient.Client, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceindexcap.AddAbility,
 		server.Provide(
 			spaceindexcap.Add,
-			func(ctx context.Context,
-				cap ucan.Capability[spaceindexcap.AddCaveats],
-				inv invocation.Invocation,
-				iCtx server.InvocationContext,
-			) (result.Result[spaceindexcap.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				logger := s.Logger()
-
-				spaceDID := cap.With()
-				index := cap.Nb().Index
-				content := cap.Nb().Content
-
-				logger.Debug("space/index/add",
-					zap.String("space", spaceDID),
-					zap.String("index", index.String()),
-					zap.Any("content", content))
-
-				indexerClient := s.IndexerClient()
-				if indexerClient == nil {
-					logger.Debug("space/index/add STUB: indexer not configured")
-					return result.Ok[spaceindexcap.AddOk, failure.IPLDBuilderFailure](
-						spaceindexcap.AddOk{},
-					), nil, nil
-				}
-
-				// Extract retrievalAuth delegation from invocation facts
-				// Guppy provides this so the indexer can fetch the index blob from piri
-				retrievalAuth, err := extractRetrievalAuth(inv)
-				if err != nil {
-					logger.Debug("no retrievalAuth in invocation", zap.Error(err))
-					// Continue without retrieval auth - indexer will try public retrieval
-				} else {
-					logger.Debug("extracted retrievalAuth delegation",
-						zap.String("link", retrievalAuth.Link().String()))
-				}
-
-				// Publish to indexer with retrieval authorization
-				if err := indexerClient.PublishIndexClaim(ctx, spaceDID, content, index, retrievalAuth); err != nil {
-					logger.Error("indexer publish failed", zap.Error(err))
-					// Return success anyway - don't block uploads for indexing failures
-					// TODO: Consider returning error in production
-				} else {
-					logger.Debug("published to indexer")
-				}
-
-				return result.Ok[spaceindexcap.AddOk, failure.IPLDBuilderFailure](
-					spaceindexcap.AddOk{},
-				), nil, nil
-			},
+			SpaceIndexAddHandler(provisioningSvc, blobRegistry, indexerClient, logger),
 		),
 	)
+}
+
+func SpaceIndexAddHandler(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Store, indexerClient *indexerclient.Client, logger *zap.Logger) server.HandlerFunc[spaceindexcap.AddCaveats, spaceindexcap.AddOk, failure.IPLDBuilderFailure] {
+	log := logger.With(zap.String("handler", spaceindexcap.AddAbility))
+	return func(ctx context.Context,
+		cap ucan.Capability[spaceindexcap.AddCaveats],
+		inv invocation.Invocation,
+		iCtx server.InvocationContext,
+	) (result.Result[spaceindexcap.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
+		space, err := did.Parse(cap.With())
+		if err != nil {
+			return result.Error[spaceindexcap.AddOk, failure.IPLDBuilderFailure](
+				errors.New(InvalidSpaceErrorName, "invalid space DID: %v", err),
+			), nil, nil
+		}
+		index, err := ipldutil.ToCID(cap.Nb().Index)
+		if err != nil {
+			return nil, nil, err
+		}
+		content, err := ipldutil.ToCID(cap.Nb().Content)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		log := log.With(
+			zap.Stringer("space", space),
+			zap.Stringer("index", index),
+			zap.Stringer("content", content),
+		)
+		log.Debug("adding index")
+
+		provs, err := provisioningSvc.ListServiceProviders(ctx, space)
+		if err != nil {
+			log.Error("failed to list service providers", zap.Error(err))
+			return nil, nil, fmt.Errorf("listing service providers: %w", err)
+		}
+		if len(provs) == 0 {
+			log.Warn("space has no service provider")
+			return result.Error[spaceindexcap.AddOk, failure.IPLDBuilderFailure](
+				errors.New(InsufficientStorageErrorName, "space has no service provider"),
+			), nil, nil
+		}
+
+		// Ensure the index is stored in the agent's space
+		_, err = blobRegistry.Get(ctx, space, index.Hash())
+		if err != nil {
+			if errors.Is(err, blobregistry.ErrEntryNotFound) {
+				log.Warn("index not found in space")
+				return result.Error[spaceindexcap.AddOk, failure.IPLDBuilderFailure](
+					ErrIndexNotFound,
+				), nil, nil
+			}
+			log.Error("failed to get index from blob registry", zap.Error(err))
+			return nil, nil, err
+		}
+
+		// Extract retrievalAuth delegation from invocation facts
+		// Guppy provides this so the indexer can fetch the index blob from piri
+		retrievalAuth, err := extractRetrievalAuth(inv)
+		if err != nil {
+			log.Error("failed to extract retrieval auth", zap.Error(err))
+			return nil, nil, fmt.Errorf("extracting retrieval auth: %w", err)
+		}
+		log.Debug("extracted retrieval auth", zap.Stringer("root", retrievalAuth.Link()))
+
+		// Publish to indexer with retrieval authorization
+		if err := indexerClient.PublishIndexClaim(ctx, space, content, index, retrievalAuth); err != nil {
+			log.Error("failed to publish index claim", zap.Error(err))
+			return nil, nil, fmt.Errorf("publishing index claim: %w", err)
+		}
+
+		return result.Ok[spaceindexcap.AddOk, failure.IPLDBuilderFailure](
+			spaceindexcap.AddOk{},
+		), nil, nil
+	}
 }

@@ -3,7 +3,6 @@ package identity
 import (
 	crypto_ed25519 "crypto/ed25519"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -34,11 +33,7 @@ func New(privateKeyBase64 string) (*Identity, error) {
 		}
 	} else {
 		// Decode provided key
-		keyBytes, err := base64.StdEncoding.DecodeString(privateKeyBase64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode private key: %w", err)
-		}
-		signer, err = ed25519.Decode(keyBytes)
+		signer, err = ed25519.Parse(privateKeyBase64)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create signer from key: %w", err)
 		}

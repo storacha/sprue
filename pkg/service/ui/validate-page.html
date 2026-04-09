@@ -1,0 +1,29 @@
+{{define "body"}}
+<header>{{.Logo}}</header>
+<main>
+  <div class="box">
+    <h1>Email Validated</h1>
+    <p>
+      <code>{{.Email}}</code> was confirmed.
+      You may close this window.
+    </p>
+  </div>
+  <div class="box">
+    <p>
+      By registering with Storacha you agree to the Storacha
+      <a href="https://docs.storacha.network/terms/">Terms of Service</a>.
+    </p>
+  </div>
+  <details class="box">
+    <summary>Auth details</summary>
+    <h5>Validation requested by</h5>
+    <pre>
+      <code>{{.Audience}}</code>
+    </pre>
+    <h5>UCAN</h5>
+    <pre>
+      <code>{{.UCAN}}</code>
+    </pre>
+  </details>
+</main>
+{{end}}
