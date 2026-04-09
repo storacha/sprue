@@ -7,50 +7,54 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
+	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/car"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
+	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
+	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/server"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/ucan"
+	"github.com/storacha/go-ucanto/validator"
 	"go.uber.org/zap"
 
-	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
-	"github.com/storacha/sprue/pkg/piriclient"
+	"github.com/storacha/sprue/pkg/lib/didmailto"
+	"github.com/storacha/sprue/pkg/lib/ucans"
 	"github.com/storacha/sprue/pkg/service/handlers"
-	"github.com/storacha/sprue/pkg/state"
+	"github.com/storacha/sprue/pkg/service/ui"
 	"github.com/storacha/sprue/pkg/store/agent"
+	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )
 
 // Service implements the sprue upload service logic.
 type Service struct {
-	cfg           *config.Config
-	identity      *identity.Identity
-	state         state.StateStore
-	agentStore    agent.Store
-	indexerClient *indexerclient.Client
-	logger        *zap.Logger
-	ucanServer    server.ServerView[server.Service]
+	identity        *identity.Identity
+	agentStore      agent.Store
+	delegationStore delegation_store.Store
+	indexerClient   *indexerclient.Client
+	logger          *zap.Logger
+	ucanServer      server.ServerView[server.Service]
+	options         []server.Option
 }
 
 // New creates a new Service instance.
-func New(cfg *config.Config, id *identity.Identity, store state.StateStore, agentStore agent.Store, indexerClient *indexerclient.Client, logger *zap.Logger) (*Service, error) {
+func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
 	svc := &Service{
-		cfg:           cfg,
-		identity:      id,
-		state:         store,
-		agentStore:    agentStore,
-		indexerClient: indexerClient,
-		logger:        logger,
+		identity:        id,
+		agentStore:      agentStore,
+		delegationStore: delegationStore,
+		indexerClient:   indexerClient,
+		logger:          logger,
+		options:         options,
 	}
 
 	// Create UCAN server with handlers
@@ -65,31 +69,16 @@ func New(cfg *config.Config, id *identity.Identity, store state.StateStore, agen
 
 // createUCANServer creates the UCAN RPC server with registered handlers.
 func (s *Service) createUCANServer() (server.ServerView[server.Service], error) {
-	// For local development, allow any principal to invoke any capability.
-	// This bypasses strict authorization checks that require proper delegation chains.
-	permissiveCanIssue := func(cap ucan.Capability[any], issuer did.DID) bool {
-		s.logger.Debug("permissive auth check",
-			zap.String("capability", cap.Can()),
-			zap.String("resource", cap.With()),
-			zap.String("issuer", issuer.String()),
-		)
-		return true // Allow all invocations
-	}
-
-	options := []server.Option{
-		server.WithCanIssue(permissiveCanIssue),
-		handlers.WithAccessAuthorizeMethod(s),
-		handlers.WithAccessClaimMethod(s),
-		handlers.WithAccessDelegateMethod(s),
-		handlers.WithFilecoinOfferMethod(s),
-		handlers.WithProviderAddMethod(s),
-		handlers.WithSpaceBlobAddMethod(s),
-		handlers.WithSpaceBlobReplicateMethod(s),
-		handlers.WithSpaceIndexAddMethod(s),
-		handlers.WithUploadAddMethod(s),
-		handlers.WithUCANConcludeMethod(s),
-	}
-
+	log := s.logger
+	options := append(
+		slices.Clone(s.options),
+		server.WithErrorHandler(func(err server.HandlerExecutionError[any]) {
+			if stack := err.Stack(); stack != "" {
+				log = log.With(zap.String("stack", stack))
+			}
+			log.Error("handler execution", zap.Error(err))
+		}),
+	)
 	return server.NewServer(s.identity.Signer, options...)
 }
 
@@ -165,6 +154,108 @@ func decodeAndIndex(r io.Reader) ([]byte, message.AgentMessage, []agent.IndexEnt
 	return body, msg, entries, nil
 }
 
+func (s *Service) HandleValidateEmailRequest(c echo.Context) error {
+	if c.QueryParam("ucan") == "" {
+		r, err := ui.ErrorPage("missing ucan query parameter")
+		if err != nil {
+			return fmt.Errorf("failed to render error page: %w", err)
+		}
+		return c.Stream(http.StatusBadRequest, "text/html", r)
+	}
+
+	switch c.Request().Method {
+	case http.MethodGet:
+		r, err := ui.PendingValidateEmailPage(true)
+		if err != nil {
+			return fmt.Errorf("failed to render validation page: %w", err)
+		}
+		return c.Stream(http.StatusOK, "text/html", r)
+	case http.MethodPost:
+		res, err := s.authorize(c.Request().Context(), c.QueryParam("ucan"))
+		if err != nil {
+			s.logger.Error("authorization error", zap.Error(err))
+			r, err := ui.ErrorPage(fmt.Sprintf("Oops, something went wrong: %s", err.Error()))
+			if err != nil {
+				return fmt.Errorf("failed to render error page: %w", err)
+			}
+			return c.Stream(http.StatusInternalServerError, "text/html", r)
+		}
+		r, err := ui.ValidateEmailPage(res.UCAN, res.Email, res.Audience)
+		if err != nil {
+			return fmt.Errorf("failed to render validation page: %w", err)
+		}
+		return c.Stream(http.StatusOK, "text/html", r)
+	default:
+		return c.String(http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+type authorizationResult struct {
+	Email    string
+	Audience string
+	UCAN     string
+	Facts    []ucan.Fact
+}
+
+func (s *Service) authorize(ctx context.Context, ucan string) (authorizationResult, error) {
+	dlgs, err := ucans.ParseDelegations(ucan)
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("parsing delegations: %w", err)
+	}
+	if len(dlgs) != 1 {
+		return authorizationResult{}, fmt.Errorf("unexpected number of delegations found in UCAN")
+	}
+	confirmation := dlgs[0]
+
+	confirm := server.Provide(
+		access.Confirm,
+		handlers.AccessConfirmHandler(s.identity, s.delegationStore, s.logger),
+	)
+	txn, err := confirm(ctx, confirmation, s.ucanServer.Context())
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("executing access/confirm handler: %w", err)
+	}
+	o, x := result.Unwrap(txn.Out())
+	if x != nil {
+		return authorizationResult{}, fmt.Errorf("access/confirm invocation failure: %w", x)
+	}
+
+	// Extract the email and audience from the confirmation invocation.
+	// This should match since we just successfully invoked the handler.
+	match, err := access.Confirm.Match(validator.NewSource(confirmation.Capabilities()[0], confirmation))
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("matching access/confirm capability: %w", err)
+	}
+	email, err := didmailto.Email(match.Value().Nb().Iss)
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("parsing account DID: %w", err)
+	}
+
+	var confirmDlgs []delegation.Delegation
+	for _, bytes := range o.Delegations.Values {
+		dlgs, err := ucans.ExtractDelegations(bytes)
+		if err != nil {
+			return authorizationResult{}, fmt.Errorf("extracting delegations from confirmation result: %w", err)
+		}
+		if len(dlgs) != 1 {
+			return authorizationResult{}, fmt.Errorf("unexpected number of delegations found in confirmation result")
+		}
+		confirmDlgs = append(confirmDlgs, dlgs[0])
+	}
+
+	ucan, err = ucans.FormatDelegations(confirmDlgs...)
+	if err != nil {
+		return authorizationResult{}, fmt.Errorf("formatting delegations: %w", err)
+	}
+
+	return authorizationResult{
+		Email:    email,
+		Audience: match.Value().Nb().Aud.String(),
+		UCAN:     ucan,
+		Facts:    confirmation.Facts(),
+	}, nil
+}
+
 // HandleReceiptRequest handles receipt retrieval requests.
 func (s *Service) HandleReceiptRequest(c echo.Context) error {
 	task, err := cid.Parse(c.Param("cid"))
@@ -196,62 +287,4 @@ func (s *Service) HandleReceiptRequest(c echo.Context) error {
 
 	reader := car.Encode([]ipld.Link{msg.Root().Link()}, msg.Blocks())
 	return c.Stream(http.StatusOK, car.ContentType, reader)
-}
-
-// Identity returns the service identity.
-func (s *Service) Identity() *identity.Identity {
-	return s.identity
-}
-
-// State returns the state store.
-func (s *Service) State() state.StateStore {
-	return s.state
-}
-
-// Config returns the service configuration.
-func (s *Service) Config() *config.Config {
-	return s.cfg
-}
-
-// Logger returns the logger.
-func (s *Service) Logger() *zap.Logger {
-	return s.logger
-}
-
-// ID returns the service's signer (implements handler interfaces).
-func (s *Service) ID() principal.Signer {
-	return s.identity.Signer
-}
-
-// IndexerClient returns the indexer client (may be nil if not configured).
-func (s *Service) IndexerClient() *indexerclient.Client {
-	return s.indexerClient
-}
-
-// PiriClient queries the provider table and creates a piri client on-demand.
-// This ensures we always use the most up-to-date provider information.
-func (s *Service) PiriClient(ctx context.Context) (*piriclient.Client, error) {
-	// Query provider from DynamoDB (delegator-provider-info table)
-	provider, err := s.state.GetFirstProvider(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get provider from state: %w", err)
-	}
-
-	if provider == nil || provider.DID == (did.DID{}) || provider.Endpoint == nil {
-		s.logger.Debug("no storage provider registered")
-		return nil, nil
-	}
-
-	// Create a new piri client for this provider
-	client, err := piriclient.New(provider.Endpoint, provider.DID, s.identity.Signer, s.state, s.logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create piri client: %w", err)
-	}
-
-	s.logger.Debug("created piri client from provider info",
-		zap.String("did", provider.DID.String()),
-		zap.String("endpoint", provider.Endpoint.String()),
-	)
-
-	return client, nil
 }

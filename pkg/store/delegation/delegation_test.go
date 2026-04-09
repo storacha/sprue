@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/ucan"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	dlgstore "github.com/storacha/sprue/pkg/store/delegation"
 	delegationaws "github.com/storacha/sprue/pkg/store/delegation/aws"

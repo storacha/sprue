@@ -84,7 +84,7 @@ func (s *Store) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, customerID did.DID) (customer.CustomerRecord, error) {
+func (s *Store) Get(ctx context.Context, customerID did.DID) (customer.Record, error) {
 	out, err := s.dynamo.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -93,15 +93,15 @@ func (s *Store) Get(ctx context.Context, customerID did.DID) (customer.CustomerR
 		ConsistentRead: aws.Bool(true),
 	})
 	if err != nil {
-		return customer.CustomerRecord{}, fmt.Errorf("getting customer: %w", err)
+		return customer.Record{}, fmt.Errorf("getting customer: %w", err)
 	}
 	if len(out.Item) == 0 {
-		return customer.CustomerRecord{}, customer.ErrCustomerNotFound
+		return customer.Record{}, customer.ErrCustomerNotFound
 	}
 	return itemToRecord(out.Item)
 }
 
-func (s *Store) Add(ctx context.Context, customerID did.DID, account *did.DID, product did.DID, details map[string]any, reservedCapacity *uint64) error {
+func (s *Store) Add(ctx context.Context, customerID did.DID, account *string, product did.DID, details map[string]any, reservedCapacity *uint64) error {
 	now := time.Now().UTC().Format(timeutil.SimplifiedISO8601)
 	item := map[string]types.AttributeValue{
 		"customer":   &types.AttributeValueMemberS{Value: customerID.String()},
@@ -109,7 +109,7 @@ func (s *Store) Add(ctx context.Context, customerID did.DID, account *did.DID, p
 		"insertedAt": &types.AttributeValueMemberS{Value: now},
 	}
 	if account != nil {
-		item["account"] = &types.AttributeValueMemberS{Value: account.String()}
+		item["account"] = &types.AttributeValueMemberS{Value: *account}
 	}
 	if reservedCapacity != nil {
 		item["reservedCapacity"] = &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", *reservedCapacity)}
@@ -140,7 +140,7 @@ func (s *Store) Add(ctx context.Context, customerID did.DID, account *did.DID, p
 	return nil
 }
 
-func (s *Store) List(ctx context.Context, options ...customer.ListOption) (store.Page[customer.CustomerRecord], error) {
+func (s *Store) List(ctx context.Context, options ...customer.ListOption) (store.Page[customer.Record], error) {
 	cfg := customer.ListConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -160,14 +160,14 @@ func (s *Store) List(ctx context.Context, options ...customer.ListOption) (store
 
 	out, err := s.dynamo.Scan(ctx, input)
 	if err != nil {
-		return store.Page[customer.CustomerRecord]{}, fmt.Errorf("listing customers: %w", err)
+		return store.Page[customer.Record]{}, fmt.Errorf("listing customers: %w", err)
 	}
 
-	records := make([]customer.CustomerRecord, 0, len(out.Items))
+	records := make([]customer.Record, 0, len(out.Items))
 	for _, item := range out.Items {
 		rec, err := itemToRecord(item)
 		if err != nil {
-			return store.Page[customer.CustomerRecord]{}, err
+			return store.Page[customer.Record]{}, err
 		}
 		records = append(records, rec)
 	}
@@ -179,7 +179,7 @@ func (s *Store) List(ctx context.Context, options ...customer.ListOption) (store
 		}
 	}
 
-	return store.Page[customer.CustomerRecord]{Results: records, Cursor: cursor}, nil
+	return store.Page[customer.Record]{Results: records, Cursor: cursor}, nil
 }
 
 func (s *Store) UpdateProduct(ctx context.Context, customerID did.DID, product did.DID) error {
@@ -211,42 +211,38 @@ func (s *Store) UpdateProduct(ctx context.Context, customerID did.DID, product d
 	return nil
 }
 
-func itemToRecord(item map[string]types.AttributeValue) (customer.CustomerRecord, error) {
+func itemToRecord(item map[string]types.AttributeValue) (customer.Record, error) {
 	customerAttr, ok := item["customer"].(*types.AttributeValueMemberS)
 	if !ok {
-		return customer.CustomerRecord{}, fmt.Errorf("missing or invalid customer attribute")
+		return customer.Record{}, fmt.Errorf("missing or invalid customer attribute")
 	}
 	customerID, err := did.Parse(customerAttr.Value)
 	if err != nil {
-		return customer.CustomerRecord{}, fmt.Errorf("parsing customer DID: %w", err)
+		return customer.Record{}, fmt.Errorf("parsing customer DID: %w", err)
 	}
 
 	productAttr, ok := item["product"].(*types.AttributeValueMemberS)
 	if !ok {
-		return customer.CustomerRecord{}, fmt.Errorf("missing or invalid product attribute")
+		return customer.Record{}, fmt.Errorf("missing or invalid product attribute")
 	}
 	product, err := did.Parse(productAttr.Value)
 	if err != nil {
-		return customer.CustomerRecord{}, fmt.Errorf("parsing product DID: %w", err)
+		return customer.Record{}, fmt.Errorf("parsing product DID: %w", err)
 	}
 
-	rec := customer.CustomerRecord{
+	rec := customer.Record{
 		Customer: customerID,
 		Product:  product,
 	}
 
 	if accountAttr, ok := item["account"].(*types.AttributeValueMemberS); ok {
-		account, err := did.Parse(accountAttr.Value)
-		if err != nil {
-			return customer.CustomerRecord{}, fmt.Errorf("parsing account DID: %w", err)
-		}
-		rec.Account = &account
+		rec.Account = &accountAttr.Value
 	}
 
 	if capAttr, ok := item["reservedCapacity"].(*types.AttributeValueMemberN); ok {
 		var cap uint64
 		if _, err := fmt.Sscanf(capAttr.Value, "%d", &cap); err != nil {
-			return customer.CustomerRecord{}, fmt.Errorf("parsing reservedCapacity: %w", err)
+			return customer.Record{}, fmt.Errorf("parsing reservedCapacity: %w", err)
 		}
 		rec.ReservedCapacity = &cap
 	}
@@ -254,7 +250,7 @@ func itemToRecord(item map[string]types.AttributeValue) (customer.CustomerRecord
 	if detailsAttr, ok := item["details"].(*types.AttributeValueMemberS); ok {
 		var details map[string]any
 		if err := json.Unmarshal([]byte(detailsAttr.Value), &details); err != nil {
-			return customer.CustomerRecord{}, fmt.Errorf("unmarshalling details: %w", err)
+			return customer.Record{}, fmt.Errorf("unmarshalling details: %w", err)
 		}
 		rec.Details = details
 	}

@@ -6,7 +6,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
+	"go.uber.org/zap"
 
+	"github.com/storacha/sprue/cmd/client"
+	"github.com/storacha/sprue/cmd/identity"
+	"github.com/storacha/sprue/internal/config"
 	appfx "github.com/storacha/sprue/internal/fx"
 )
 
@@ -27,6 +32,8 @@ Routes blob allocations to Piri nodes and tracks upload state in DynamoDB.`,
 	}
 
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(client.Cmd)
+	rootCmd.AddCommand(identity.Cmd)
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file path (default: looks for config.yaml in current dir)")
@@ -38,15 +45,17 @@ Routes blob allocations to Piri nodes and tracks upload state in DynamoDB.`,
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	app := fx.New(
-		fx.Supply(appfx.ConfigParams{
-			ConfigFile: cfgFile,
-		}),
-		appfx.AppModule,
-		// Suppress fx's default logging, we use our own zap logger
-		fx.NopLogger,
-	)
+	cfg, err := config.Load(cfgFile)
+	cobra.CheckErr(err)
 
+	app := fx.New(
+		appfx.AppModule(cfg),
+		// Suppress fx's default logging and use our own zap logger
+		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
+			return &fxevent.ZapLogger{Logger: log}
+		}),
+	)
 	app.Run()
+
 	return nil
 }

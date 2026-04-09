@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/storacha/sprue/pkg/internal/testutil"
+	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	spacediff "github.com/storacha/sprue/pkg/store/space_diff"
 	spacediffaws "github.com/storacha/sprue/pkg/store/space_diff/aws"

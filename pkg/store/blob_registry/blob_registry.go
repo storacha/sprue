@@ -6,8 +6,9 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-capabilities/pkg/blob"
+	"github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 
@@ -18,9 +19,9 @@ const (
 
 var (
 	// ErrEntryNotFound indicates an entry was not found that matches the passed details.
-	ErrEntryNotFound = store.NewError(EntryNotFoundErrorName, "blob not found")
+	ErrEntryNotFound = errors.New(EntryNotFoundErrorName, "blob not found")
 	// ErrEntryExists indicates an entry already exists that matches the passed details.
-	ErrEntryExists = store.NewError(EntryExistsErrorName, "blob already exists")
+	ErrEntryExists = errors.New(EntryExistsErrorName, "blob already exists")
 )
 
 type (
@@ -40,21 +41,21 @@ func WithListCursor(cursor string) ListOption {
 	}
 }
 
-type EntryRecord struct {
+type Record struct {
 	Space      did.DID
-	Blob       blob.Blob
+	Blob       types.Blob
 	Cause      cid.Cid
 	InsertedAt time.Time
 }
 
 type Store interface {
 	// Lookup an existing registration. May return [ErrEntryNotFound].
-	Get(ctx context.Context, space did.DID, digest multihash.Multihash) (EntryRecord, error)
+	Get(ctx context.Context, space did.DID, digest multihash.Multihash) (Record, error)
 	// Adds an item into the registry if it does not already exist. May return
 	// [ErrEntryExists] if the blob is already registered in the space.
-	Register(ctx context.Context, space did.DID, blob blob.Blob, cause cid.Cid) error
+	Register(ctx context.Context, space did.DID, blob types.Blob, cause cid.Cid) error
 	// List entries in the registry for a given space.
-	List(ctx context.Context, space did.DID, options ...ListOption) (store.Page[EntryRecord], error)
+	List(ctx context.Context, space did.DID, options ...ListOption) (store.Page[Record], error)
 	// Removes an item from the registry if it exists.
 	Deregister(ctx context.Context, space did.DID, digest multihash.Multihash, cause cid.Cid) error
 }

@@ -124,11 +124,13 @@ func (s *Store) PutMany(ctx context.Context, delegations []delegation.Delegation
 		// Write the index entry to DynamoDB.
 		item := map[string]types.AttributeValue{
 			"link":       &types.AttributeValueMemberS{Value: link},
-			"cause":      &types.AttributeValueMemberS{Value: cause.String()},
 			"audience":   &types.AttributeValueMemberS{Value: dlg.Audience().DID().String()},
 			"issuer":     &types.AttributeValueMemberS{Value: dlg.Issuer().DID().String()},
 			"insertedAt": &types.AttributeValueMemberS{Value: now},
 			"updatedAt":  &types.AttributeValueMemberS{Value: now},
+		}
+		if cause != cid.Undef {
+			item["cause"] = &types.AttributeValueMemberS{Value: cause.String()}
 		}
 		if exp := dlg.Expiration(); exp != nil {
 			item["expiration"] = &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", *exp)}
