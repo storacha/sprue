@@ -107,7 +107,7 @@ func UCANConcludeHandler(id *identity.Identity, agentStore agent.Store, handlers
 		log.Debug("found invocation for conclusion")
 
 		if handler, ok := handlers[ability]; ok {
-			err := handler(ctx, inv, rcpt, iCtx)
+			err := handler(ctx, ranInv, rcpt, iCtx)
 			if err != nil {
 				log.Error("failed to conclude receipt", zap.Error(err))
 				return nil, nil, fmt.Errorf("concluding %q: %w", ability, err)

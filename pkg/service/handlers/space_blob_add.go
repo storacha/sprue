@@ -102,12 +102,10 @@ func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, nodePro
 			return nil, nil, err
 		}
 
-		forks := []fx.Effect{fx.FromInvocation(allocInv), fx.FromInvocation(putInv)}
-
-		// If the accept receipt has been issued, add the issued invocation to
-		// the response.
-		if accRcpt != nil {
-			forks = append(forks, fx.FromInvocation(accInv))
+		forks := []fx.Effect{
+			fx.FromInvocation(allocInv),
+			fx.FromInvocation(putInv),
+			fx.FromInvocation(accInv),
 		}
 
 		// As a temporary solution we fork all add effects that add inline
