@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	InvalidReplicaTransferParamsErrorName     = "InvalidReplicaTransferParams"
+	InvalidReplicaTransferArgsErrorName       = "InvalidReplicaTransferArgs"
 	InvalidReplicaTransferCauseErrorName      = "InvalidReplicaTransferCause"
 	UnknownReplicaAllocationErrorName         = "UnknownReplicaAllocation"
 	ReplicaTransferParameterMismatchErrorName = "ReplicaTransferParameterMismatch"
@@ -59,12 +59,12 @@ func NewBlobReplicaTransferConcludeHandler(
 			transferMatch, err := replicacaps.Transfer.Match(validator.NewSource(transferCap, transferTask))
 			if err != nil {
 				log.Warn("failed to match replica transfer parameters", zap.Error(err))
-				return errors.New(InvalidReplicaTransferParamsErrorName, "invalid replica transfer parameters: %v", err)
+				return errors.New(InvalidReplicaTransferArgsErrorName, "invalid replica transfer parameters: %v", err)
 			}
-			transferParams := transferMatch.Value().Nb()
-			log = log.With(zap.Stringer("allocation", transferParams.Cause))
+			transferArgs := transferMatch.Value().Nb()
+			log = log.With(zap.Stringer("allocation", transferArgs.Cause))
 
-			allocTaskLink, err := ipldutil.ToCID(transferParams.Cause)
+			allocTaskLink, err := ipldutil.ToCID(transferArgs.Cause)
 			if err != nil {
 				return err
 			}
@@ -97,13 +97,13 @@ func NewBlobReplicaTransferConcludeHandler(
 				log.Warn("failed to match replica allocation parameters", zap.Error(err))
 				return errors.New(InvalidReplicaTransferCauseErrorName, "invalid replica allocation parameters: %v", err)
 			}
-			allocParams := allocMatch.Value().Nb()
+			allocArgs := allocMatch.Value().Nb()
 			log = log.With(
-				zap.Stringer("space", allocParams.Space),
+				zap.Stringer("space", allocArgs.Space),
 				zap.Dict(
 					"blob",
-					zap.String("digest", digestutil.Format(allocParams.Blob.Digest)),
-					zap.Uint64("size", allocParams.Blob.Size),
+					zap.String("digest", digestutil.Format(allocArgs.Blob.Digest)),
+					zap.Uint64("size", allocArgs.Blob.Size),
 				),
 			)
 
@@ -125,7 +125,7 @@ func NewBlobReplicaTransferConcludeHandler(
 			}
 
 			updateReplicaStatus := func(status replica.ReplicationStatus) error {
-				err = replicaStore.SetStatus(ctx, allocParams.Space, allocParams.Blob.Digest, executor.DID(), status)
+				err = replicaStore.SetStatus(ctx, allocArgs.Space, allocArgs.Blob.Digest, executor.DID(), status)
 				if err != nil {
 					log.Error("failed to update replica status", zap.Error(err))
 					return err
@@ -188,9 +188,9 @@ func NewBlobReplicaTransferConcludeHandler(
 				return errors.New(ReplicaAllocationFailedErrorName, "Allocation associated with this transfer has failed: %s", err.Error())
 			}
 
-			if !bytes.Equal(transferParams.Blob.Digest, allocParams.Blob.Digest) ||
-				transferParams.Blob.Size != allocParams.Blob.Size ||
-				transferParams.Space != allocParams.Space {
+			if !bytes.Equal(transferArgs.Blob.Digest, allocArgs.Blob.Digest) ||
+				transferArgs.Blob.Size != allocArgs.Blob.Size ||
+				transferArgs.Space != allocArgs.Space {
 				log.Warn("transfer parameters do not match allocation parameters")
 				_ = updateReplicaStatus(replica.Failed)
 				return errors.New(ReplicaTransferParameterMismatchErrorName, "transfer parameters do not match allocation parameters")
