@@ -9,7 +9,6 @@ import (
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
 	blobreplicacap "github.com/storacha/go-libstoracha/capabilities/blob/replica"
 	"github.com/storacha/go-libstoracha/capabilities/types"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	uclient "github.com/storacha/go-ucanto/client"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
@@ -123,7 +122,7 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 		c.piriDID.String(), // resource is the piri DID
 		blobcap.AllocateCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -163,7 +162,7 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 	}
 
 	// Read the receipt using the any reader to avoid type issues
-	anyReader := receipt.NewAnyReceiptReader(captypes.Converters...)
+	anyReader := receipt.NewAnyReceiptReader(types.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
@@ -200,7 +199,7 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 		anyRcpt,
 		blobcap.AllocateOkType(),
 		fdm.FailureType(),
-		captypes.Converters...,
+		types.Converters...,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("rebinding receipt: %w", err)
@@ -231,7 +230,7 @@ func (c *Client) AllocateInvocation(ctx context.Context, req *AllocateRequest, f
 		c.piriDID.String(),
 		blobcap.AllocateCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -276,7 +275,7 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher Delegat
 		c.piriDID.String(),
 		blobcap.AcceptCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -321,7 +320,7 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher Delegat
 	}
 
 	// Read the receipt using the any reader
-	anyReader := receipt.NewAnyReceiptReader(captypes.Converters...)
+	anyReader := receipt.NewAnyReceiptReader(types.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
@@ -379,7 +378,7 @@ func (c *Client) AcceptInvocation(ctx context.Context, req *AcceptRequest, fetch
 		c.piriDID.String(),
 		blobcap.AcceptCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -437,7 +436,7 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 		c.piriDID.String(), // resource is the piri DID
 		blobreplicacap.AllocateCaveats{
 			Space: req.Space,
-			Blob: captypes.Blob{
+			Blob: types.Blob{
 				Digest: req.Digest,
 				Size:   req.Size,
 			},
@@ -475,7 +474,7 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
 	}
 
-	reader := receipt.NewAnyReceiptReader(captypes.Converters...)
+	reader := receipt.NewAnyReceiptReader(types.Converters...)
 	rcpt, err := reader.Read(rcptLink, resp.Blocks())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
@@ -486,7 +485,7 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 		return nil, nil, nil, fmt.Errorf("allocate failed: %s", fdm.Bind(x).Message)
 	}
 
-	allocateOk, err := ipld.Rebind[blobreplicacap.AllocateOk](o, blobreplicacap.AllocateOkType(), captypes.Converters...)
+	allocateOk, err := ipld.Rebind[blobreplicacap.AllocateOk](o, blobreplicacap.AllocateOkType(), types.Converters...)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("rebinding receipt: %w", err)
 	}

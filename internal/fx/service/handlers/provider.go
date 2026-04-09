@@ -22,6 +22,22 @@ var Module = fx.Module("service-handlers",
 			fx.ResultTags(`group:"ucan_options"`),
 		),
 		fx.Annotate(
+			handlers.WithAdminProviderDeregisterMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
+			handlers.WithAdminProviderListMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
+			handlers.WithAdminProviderRegisterMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
+			handlers.WithAdminProviderWeightSetMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
 			handlers.WithFilecoinOfferMethod,
 			fx.ResultTags(`group:"ucan_options"`),
 		),
@@ -47,6 +63,14 @@ var Module = fx.Module("service-handlers",
 		),
 		fx.Annotate(
 			handlers.WithUploadAddMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
+			handlers.WithUploadListMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
+			handlers.WithUploadShardListMethod,
 			fx.ResultTags(`group:"ucan_options"`),
 		),
 		fx.Annotate(

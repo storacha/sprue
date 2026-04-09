@@ -203,7 +203,7 @@ func TestSpaceBlobReplicateHandler(t *testing.T) {
 		storageProviderProof := delegateStorageProviderProof(t, storageProvider, uploadService)
 
 		spStore := storage_provider_store.New()
-		err := spStore.Put(ctx, storageProvider.DID(), *storageProviderURL, storageProviderProof, 100, nil)
+		err := spStore.Put(ctx, *storageProviderURL, storageProviderProof, 100, nil)
 		require.NoError(t, err)
 
 		router := routing.NewService(spStore, logger)

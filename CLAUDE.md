@@ -35,14 +35,22 @@ Sprue is the upload coordination service for Storacha local development. It rout
 
 **UCAN RPC Service (pkg/service/)**
 - `Service` struct wraps a go-ucanto server that handles UCAN RPC requests
-- Handlers in `pkg/service/handlers/` implement UCAP capabilities (e.g., `space/blob/add`, `upload/add`)
-- Each handler follows the pattern: `With<Capability>Method(s ServiceInterface) server.Option`
-- Handler service interfaces define the dependencies each handler needs (e.g., `SpaceBlobAddService`)
+- Handlers in `pkg/service/handlers/` implement UCAN capabilities (e.g., `space/blob/add`, `upload/add`)
+- Each handler follows the pattern: `With<Capability>Method(stores..., services..., logger) server.Option`
+- Handlers receive their store and service dependencies directly as function parameters
+- Handlers are registered via fx groups (`group:"ucan_options"`) and collected into the UCAN server
 
-**State Management (pkg/state/)**
-- `StateStore` interface defines all storage operations (allocations, receipts, auth requests, etc.)
-- DynamoDB implementation in `pkg/dynamo/store.go`
-- Key types: `Allocation`, `Upload`, `StoredReceipt`, `Provider`, `AuthRequest`, `Provisioning`
+**Stores (pkg/store/)**
+- Each domain has its own store interface in `pkg/store/<domain>/`
+- Each store has two implementations: AWS (DynamoDB/S3) in `<domain>/aws/` and in-memory in `<domain>/memory/`
+- Store interfaces: `agent.Store`, `blob_registry.Store`, `consumer.Store`, `customer.Store`, `delegation.Store`, `metrics.Store`, `replica.Store`, `revocation.Store`, `space_diff.Store`, `storage_provider.Store`, `subscription.Store`, `upload.Store`
+- AWS stores are wired in `internal/fx/store/aws/provider.go`, memory stores in `internal/fx/store/memory/provider.go`
+
+**Services (pkg/)**
+- `provisioning`: Manages space provisioning (consumers + subscriptions)
+- `routing`: Selects storage providers for blob allocation and replication
+- `piriclient`: Communicates with Piri storage nodes for blob allocation/acceptance
+- `indexerclient`: Communicates with the indexing service
 
 **External Clients (pkg/)**
 - `piriclient`: Communicates with Piri storage nodes for blob allocation/acceptance
