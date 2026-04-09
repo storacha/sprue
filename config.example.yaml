@@ -50,12 +50,18 @@ indexer:
   did: ""
 
 mailer:
-  # Specifies the mailer implementation to use (e.g., "postmark", "nop").
+  # Specifies the mailer implementation to use (e.g., "postmark", "smtp", "nop").
   type: "nop"
   # Email address to use as the default sender for outgoing emails.
   sender: "dev@storacha.network"
   # Postmark API token (required if type is "postmark")
   postmark_token: ""
+  # Address of the SMTP server (e.g., "smtp.example.com:25")
+  smtp_addr: ""
+  # Username for SMTP authentication
+  smtp_auth_user: ""
+  # Secret for CRAMMD5 SMTP authentication
+  smtp_auth_secret: ""
 
 dynamodb:
   # DynamoDB endpoint (for local development with DynamoDB Local)
