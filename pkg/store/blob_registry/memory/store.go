@@ -9,7 +9,7 @@ import (
 
 	cid "github.com/ipfs/go-cid"
 	multihash "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-capabilities/pkg/blob"
+	"github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/store"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
@@ -21,7 +21,7 @@ import (
 type Store struct {
 	mutex sync.RWMutex
 	// space -> list of blob entries
-	blobs          map[did.DID][]blobregistry.EntryRecord
+	blobs          map[did.DID][]blobregistry.Record
 	spaceDiffStore spacediff.Store
 	consumerStore  consumer.Store
 	spaceMetrics   metrics.SpaceStore
@@ -32,7 +32,7 @@ var _ blobregistry.Store = (*Store)(nil)
 
 func New(spaceDiffStore spacediff.Store, consumerStore consumer.Store, spaceMetrics metrics.SpaceStore, adminMetrics metrics.Store) *Store {
 	return &Store{
-		blobs:          map[did.DID][]blobregistry.EntryRecord{},
+		blobs:          map[did.DID][]blobregistry.Record{},
 		spaceDiffStore: spaceDiffStore,
 		consumerStore:  consumerStore,
 		spaceMetrics:   spaceMetrics,
@@ -44,7 +44,7 @@ func (s *Store) Deregister(ctx context.Context, space did.DID, digest multihash.
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	ents := []blobregistry.EntryRecord{}
+	ents := []blobregistry.Record{}
 	for _, ent := range s.blobs[space] {
 		if bytes.Equal(ent.Blob.Digest, digest) {
 			consumers, err := s.collectConsumers(ctx, space)
@@ -80,7 +80,7 @@ func (s *Store) Deregister(ctx context.Context, space did.DID, digest multihash.
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multihash) (blobregistry.EntryRecord, error) {
+func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multihash) (blobregistry.Record, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	for _, ent := range s.blobs[space] {
@@ -88,10 +88,10 @@ func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multiha
 			return ent, nil
 		}
 	}
-	return blobregistry.EntryRecord{}, blobregistry.ErrEntryNotFound
+	return blobregistry.Record{}, blobregistry.ErrEntryNotFound
 }
 
-func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry.ListOption) (store.Page[blobregistry.EntryRecord], error) {
+func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry.ListOption) (store.Page[blobregistry.Record], error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -112,7 +112,7 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry
 			}
 		}
 		if !found {
-			return store.Page[blobregistry.EntryRecord]{}, fmt.Errorf("invalid cursor")
+			return store.Page[blobregistry.Record]{}, fmt.Errorf("invalid cursor")
 		}
 	}
 
@@ -123,12 +123,12 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry
 		cursor = &c
 	}
 
-	results := make([]blobregistry.EntryRecord, len(entries))
+	results := make([]blobregistry.Record, len(entries))
 	copy(results, entries)
-	return store.Page[blobregistry.EntryRecord]{Results: results, Cursor: cursor}, nil
+	return store.Page[blobregistry.Record]{Results: results, Cursor: cursor}, nil
 }
 
-func (s *Store) Register(ctx context.Context, space did.DID, blob blob.Blob, cause cid.Cid) error {
+func (s *Store) Register(ctx context.Context, space did.DID, blob types.Blob, cause cid.Cid) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -138,7 +138,7 @@ func (s *Store) Register(ctx context.Context, space did.DID, blob blob.Blob, cau
 		}
 	}
 
-	ent := blobregistry.EntryRecord{
+	ent := blobregistry.Record{
 		Space:      space,
 		Blob:       blob,
 		Cause:      cause,
@@ -172,8 +172,8 @@ func (s *Store) Register(ctx context.Context, space did.DID, blob blob.Blob, cau
 	return nil
 }
 
-func (s *Store) collectConsumers(ctx context.Context, space did.DID) ([]consumer.ConsumerRecord, error) {
-	results, err := store.Collect(ctx, func(ctx context.Context, options store.PaginationConfig) (store.Page[consumer.ConsumerRecord], error) {
+func (s *Store) collectConsumers(ctx context.Context, space did.DID) ([]consumer.Record, error) {
+	results, err := store.Collect(ctx, func(ctx context.Context, options store.PaginationConfig) (store.Page[consumer.Record], error) {
 		opts := []consumer.ListOption{}
 		if options.Cursor != nil {
 			opts = append(opts, consumer.WithListCursor(*options.Cursor))

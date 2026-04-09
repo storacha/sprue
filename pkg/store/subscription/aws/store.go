@@ -126,7 +126,7 @@ func (s *Store) Add(ctx context.Context, provider did.DID, subscriptionID string
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, provider did.DID, subscriptionID string) (subscription.SubscriptionRecord, error) {
+func (s *Store) Get(ctx context.Context, provider did.DID, subscriptionID string) (subscription.Record, error) {
 	out, err := s.dynamo.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -136,15 +136,15 @@ func (s *Store) Get(ctx context.Context, provider did.DID, subscriptionID string
 		ConsistentRead: aws.Bool(true),
 	})
 	if err != nil {
-		return subscription.SubscriptionRecord{}, fmt.Errorf("getting subscription: %w", err)
+		return subscription.Record{}, fmt.Errorf("getting subscription: %w", err)
 	}
 	if len(out.Item) == 0 {
-		return subscription.SubscriptionRecord{}, subscription.ErrSubscriptionNotFound
+		return subscription.Record{}, subscription.ErrSubscriptionNotFound
 	}
 	return itemToRecord(out.Item)
 }
 
-func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID, customer did.DID, options ...subscription.ListByProviderAndCustomerOption) (store.Page[subscription.SubscriptionRecord], error) {
+func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID, customer did.DID, options ...subscription.ListByProviderAndCustomerOption) (store.Page[subscription.Record], error) {
 	cfg := subscription.ListByProviderAndCustomerConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -178,14 +178,14 @@ func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID,
 
 	out, err := s.dynamo.Query(ctx, input)
 	if err != nil {
-		return store.Page[subscription.SubscriptionRecord]{}, fmt.Errorf("listing subscriptions by provider and customer: %w", err)
+		return store.Page[subscription.Record]{}, fmt.Errorf("listing subscriptions by provider and customer: %w", err)
 	}
 
-	records := make([]subscription.SubscriptionRecord, 0, len(out.Items))
+	records := make([]subscription.Record, 0, len(out.Items))
 	for _, item := range out.Items {
 		rec, err := itemToRecord(item)
 		if err != nil {
-			return store.Page[subscription.SubscriptionRecord]{}, err
+			return store.Page[subscription.Record]{}, err
 		}
 		records = append(records, rec)
 	}
@@ -197,42 +197,42 @@ func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID,
 		}
 	}
 
-	return store.Page[subscription.SubscriptionRecord]{Results: records, Cursor: cursor}, nil
+	return store.Page[subscription.Record]{Results: records, Cursor: cursor}, nil
 }
 
-func itemToRecord(item map[string]types.AttributeValue) (subscription.SubscriptionRecord, error) {
+func itemToRecord(item map[string]types.AttributeValue) (subscription.Record, error) {
 	subscriptionAttr, ok := item["subscription"].(*types.AttributeValueMemberS)
 	if !ok {
-		return subscription.SubscriptionRecord{}, fmt.Errorf("missing or invalid subscription attribute")
+		return subscription.Record{}, fmt.Errorf("missing or invalid subscription attribute")
 	}
 
 	providerAttr, ok := item["provider"].(*types.AttributeValueMemberS)
 	if !ok {
-		return subscription.SubscriptionRecord{}, fmt.Errorf("missing or invalid provider attribute")
+		return subscription.Record{}, fmt.Errorf("missing or invalid provider attribute")
 	}
 	provider, err := did.Parse(providerAttr.Value)
 	if err != nil {
-		return subscription.SubscriptionRecord{}, fmt.Errorf("parsing provider DID: %w", err)
+		return subscription.Record{}, fmt.Errorf("parsing provider DID: %w", err)
 	}
 
 	customerAttr, ok := item["customer"].(*types.AttributeValueMemberS)
 	if !ok {
-		return subscription.SubscriptionRecord{}, fmt.Errorf("missing or invalid customer attribute")
+		return subscription.Record{}, fmt.Errorf("missing or invalid customer attribute")
 	}
 	customer, err := did.Parse(customerAttr.Value)
 	if err != nil {
-		return subscription.SubscriptionRecord{}, fmt.Errorf("parsing customer DID: %w", err)
+		return subscription.Record{}, fmt.Errorf("parsing customer DID: %w", err)
 	}
 
 	var cause cid.Cid
 	if causeAttr, ok := item["cause"].(*types.AttributeValueMemberS); ok {
 		cause, err = cid.Parse(causeAttr.Value)
 		if err != nil {
-			return subscription.SubscriptionRecord{}, fmt.Errorf("parsing cause CID: %w", err)
+			return subscription.Record{}, fmt.Errorf("parsing cause CID: %w", err)
 		}
 	}
 
-	rec := subscription.SubscriptionRecord{
+	rec := subscription.Record{
 		Subscription: subscriptionAttr.Value,
 		Provider:     provider,
 		Customer:     customer,

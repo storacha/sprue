@@ -1,4 +1,0 @@
-type Error struct {
-  errorName String (rename "name")
-  message String
-}

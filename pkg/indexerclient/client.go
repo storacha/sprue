@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime/datamodel"
+	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
 	"github.com/multiformats/go-multiaddr"
 	"go.uber.org/zap"
@@ -69,7 +71,7 @@ func New(endpoint *url.URL, indexerDID did.DID, signer principal.Signer, logger 
 // If provided, the upload service creates a fresh delegation to the indexer
 // using the same caveats. The client's proof chain is NOT included to avoid
 // leaking did:mailto identities to storage nodes.
-func (c *Client) PublishIndexClaim(ctx context.Context, spaceDID string, content, index ipld.Link, clientAuth delegation.Delegation) error {
+func (c *Client) PublishIndexClaim(ctx context.Context, space did.DID, content, index cid.Cid, clientAuth delegation.Delegation) error {
 	var opts []delegation.Option
 
 	// Re-delegate the client's retrieval auth to the indexer if provided
@@ -93,10 +95,10 @@ func (c *Client) PublishIndexClaim(ctx context.Context, spaceDID string, content
 		// leaking client identities. For this mock/test setup, the did:mailto is only
 		// visible to piri (the storage node), not publicly exposed.
 		indexerDelegation, delegateErr := contentcap.Retrieve.Delegate(
-			c.signer,     // issuer: upload service (did:key)
-			c.indexerDID, // audience: indexer (did:web:indexer)
-			spaceDID,     // with: space DID (resource)
-			origCaveats,  // same caveats (Blob, Range) from client
+			c.signer,       // issuer: upload service (did:key)
+			c.indexerDID,   // audience: indexer (did:web:indexer)
+			space.String(), // with: space DID (resource)
+			origCaveats,    // same caveats (Blob, Range) from client
 			delegation.WithNoExpiration(),
 			delegation.WithProof(delegation.FromDelegation(clientAuth)), // Include client's proof chain
 		)
@@ -120,8 +122,8 @@ func (c *Client) PublishIndexClaim(ctx context.Context, spaceDID string, content
 		c.indexerDID,
 		c.signer.DID().String(),
 		assertcap.IndexCaveats{
-			Content: content,
-			Index:   index,
+			Content: cidlink.Link{Cid: content},
+			Index:   cidlink.Link{Cid: index},
 		},
 		opts...,
 	)

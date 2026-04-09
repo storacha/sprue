@@ -17,14 +17,14 @@ import (
 type Store struct {
 	mutex sync.RWMutex
 	// provider DID -> subscription ID -> subscription record
-	subs map[did.DID]map[string]subscription.SubscriptionRecord
+	subs map[did.DID]map[string]subscription.Record
 }
 
 var _ subscription.Store = (*Store)(nil)
 
 func New() *Store {
 	return &Store{
-		subs: map[did.DID]map[string]subscription.SubscriptionRecord{},
+		subs: map[did.DID]map[string]subscription.Record{},
 	}
 }
 
@@ -32,12 +32,12 @@ func (s *Store) Add(ctx context.Context, provider did.DID, subscriptionID string
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if _, ok := s.subs[provider]; !ok {
-		s.subs[provider] = map[string]subscription.SubscriptionRecord{}
+		s.subs[provider] = map[string]subscription.Record{}
 	}
 	if _, ok := s.subs[provider][subscriptionID]; ok {
 		return subscription.ErrSubscriptionExists
 	}
-	s.subs[provider][subscriptionID] = subscription.SubscriptionRecord{
+	s.subs[provider][subscriptionID] = subscription.Record{
 		Provider:     provider,
 		Subscription: subscriptionID,
 		Customer:     customer,
@@ -46,7 +46,7 @@ func (s *Store) Add(ctx context.Context, provider did.DID, subscriptionID string
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, provider did.DID, subscriptionID string) (subscription.SubscriptionRecord, error) {
+func (s *Store) Get(ctx context.Context, provider did.DID, subscriptionID string) (subscription.Record, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	if subs, ok := s.subs[provider]; ok {
@@ -54,10 +54,10 @@ func (s *Store) Get(ctx context.Context, provider did.DID, subscriptionID string
 			return sub, nil
 		}
 	}
-	return subscription.SubscriptionRecord{}, subscription.ErrSubscriptionNotFound
+	return subscription.Record{}, subscription.ErrSubscriptionNotFound
 }
 
-func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID, customer did.DID, options ...subscription.ListByProviderAndCustomerOption) (store.Page[subscription.SubscriptionRecord], error) {
+func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID, customer did.DID, options ...subscription.ListByProviderAndCustomerOption) (store.Page[subscription.Record], error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -67,13 +67,13 @@ func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID,
 		opt(&cfg)
 	}
 
-	var all []subscription.SubscriptionRecord
+	var all []subscription.Record
 	for _, sub := range s.subs[provider] {
 		if sub.Customer == customer {
 			all = append(all, sub)
 		}
 	}
-	slices.SortFunc(all, func(a, b subscription.SubscriptionRecord) int {
+	slices.SortFunc(all, func(a, b subscription.Record) int {
 		return strings.Compare(a.Subscription, b.Subscription)
 	})
 
@@ -81,10 +81,10 @@ func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID,
 	if cfg.Cursor != nil {
 		i, err := strconv.Atoi(*cfg.Cursor)
 		if err != nil {
-			return store.Page[subscription.SubscriptionRecord]{}, fmt.Errorf("invalid cursor: %w", err)
+			return store.Page[subscription.Record]{}, fmt.Errorf("invalid cursor: %w", err)
 		}
 		if i < 0 || i > len(results) {
-			return store.Page[subscription.SubscriptionRecord]{}, fmt.Errorf("cursor out of bounds")
+			return store.Page[subscription.Record]{}, fmt.Errorf("cursor out of bounds")
 		}
 		results = results[i:]
 	}
@@ -97,7 +97,7 @@ func (s *Store) ListByProviderAndCustomer(ctx context.Context, provider did.DID,
 		cursor = &c
 	}
 
-	return store.Page[subscription.SubscriptionRecord]{
+	return store.Page[subscription.Record]{
 		Cursor:  cursor,
 		Results: results,
 	}, nil

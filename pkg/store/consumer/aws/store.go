@@ -137,7 +137,7 @@ func (s *Store) Add(ctx context.Context, provider did.DID, space did.DID, custom
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, provider did.DID, space did.DID) (consumer.ConsumerRecord, error) {
+func (s *Store) Get(ctx context.Context, provider did.DID, space did.DID) (consumer.Record, error) {
 	out, err := s.dynamo.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(s.tableName),
 		IndexName:              aws.String("consumerV3"),
@@ -153,15 +153,15 @@ func (s *Store) Get(ctx context.Context, provider did.DID, space did.DID) (consu
 		Limit: aws.Int32(1),
 	})
 	if err != nil {
-		return consumer.ConsumerRecord{}, fmt.Errorf("getting consumer: %w", err)
+		return consumer.Record{}, fmt.Errorf("getting consumer: %w", err)
 	}
 	if len(out.Items) == 0 {
-		return consumer.ConsumerRecord{}, consumer.ErrConsumerNotFound
+		return consumer.Record{}, consumer.ErrConsumerNotFound
 	}
 	return itemToRecord(out.Items[0])
 }
 
-func (s *Store) GetBySubscription(ctx context.Context, provider did.DID, subscription string) (consumer.ConsumerRecord, error) {
+func (s *Store) GetBySubscription(ctx context.Context, provider did.DID, subscription string) (consumer.Record, error) {
 	out, err := s.dynamo.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -171,15 +171,15 @@ func (s *Store) GetBySubscription(ctx context.Context, provider did.DID, subscri
 		ConsistentRead: aws.Bool(true),
 	})
 	if err != nil {
-		return consumer.ConsumerRecord{}, fmt.Errorf("getting consumer by subscription: %w", err)
+		return consumer.Record{}, fmt.Errorf("getting consumer by subscription: %w", err)
 	}
 	if len(out.Item) == 0 {
-		return consumer.ConsumerRecord{}, consumer.ErrConsumerNotFound
+		return consumer.Record{}, consumer.ErrConsumerNotFound
 	}
 	return itemToRecord(out.Item)
 }
 
-func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.ListOption) (store.Page[consumer.ConsumerRecord], error) {
+func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.ListOption) (store.Page[consumer.Record], error) {
 	cfg := consumer.ListConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -202,7 +202,7 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.Lis
 	if cfg.Cursor != nil {
 		provider, subscription, err := splitCursor(*cfg.Cursor)
 		if err != nil {
-			return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("invalid cursor: %w", err)
+			return store.Page[consumer.Record]{}, fmt.Errorf("invalid cursor: %w", err)
 		}
 		input.ExclusiveStartKey = map[string]types.AttributeValue{
 			"consumer":     &types.AttributeValueMemberS{Value: space.String()},
@@ -213,12 +213,12 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.Lis
 
 	out, err := s.dynamo.Query(ctx, input)
 	if err != nil {
-		return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("listing consumers: %w", err)
+		return store.Page[consumer.Record]{}, fmt.Errorf("listing consumers: %w", err)
 	}
 
 	records, err := itemsToRecords(out.Items)
 	if err != nil {
-		return store.Page[consumer.ConsumerRecord]{}, err
+		return store.Page[consumer.Record]{}, err
 	}
 
 	var cursor *string
@@ -231,10 +231,10 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...consumer.Lis
 		}
 	}
 
-	return store.Page[consumer.ConsumerRecord]{Results: records, Cursor: cursor}, nil
+	return store.Page[consumer.Record]{Results: records, Cursor: cursor}, nil
 }
 
-func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ...consumer.ListByCustomerOption) (store.Page[consumer.ConsumerRecord], error) {
+func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ...consumer.ListByCustomerOption) (store.Page[consumer.Record], error) {
 	cfg := consumer.ListByCustomerConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -257,7 +257,7 @@ func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ..
 	if cfg.Cursor != nil {
 		provider, subscription, err := splitCursor(*cfg.Cursor)
 		if err != nil {
-			return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("invalid cursor: %w", err)
+			return store.Page[consumer.Record]{}, fmt.Errorf("invalid cursor: %w", err)
 		}
 		input.ExclusiveStartKey = map[string]types.AttributeValue{
 			"customer":     &types.AttributeValueMemberS{Value: customer.String()},
@@ -268,12 +268,12 @@ func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ..
 
 	out, err := s.dynamo.Query(ctx, input)
 	if err != nil {
-		return store.Page[consumer.ConsumerRecord]{}, fmt.Errorf("listing consumers by customer: %w", err)
+		return store.Page[consumer.Record]{}, fmt.Errorf("listing consumers by customer: %w", err)
 	}
 
 	records, err := itemsToRecords(out.Items)
 	if err != nil {
-		return store.Page[consumer.ConsumerRecord]{}, err
+		return store.Page[consumer.Record]{}, err
 	}
 
 	var cursor *string
@@ -286,7 +286,7 @@ func (s *Store) ListByCustomer(ctx context.Context, customer did.DID, options ..
 		}
 	}
 
-	return store.Page[consumer.ConsumerRecord]{Results: records, Cursor: cursor}, nil
+	return store.Page[consumer.Record]{Results: records, Cursor: cursor}, nil
 }
 
 // joinCursor encodes provider and subscription into an opaque cursor string.
@@ -303,8 +303,8 @@ func splitCursor(cursor string) (provider, subscription string, err error) {
 	return parts[0], parts[1], nil
 }
 
-func itemsToRecords(items []map[string]types.AttributeValue) ([]consumer.ConsumerRecord, error) {
-	records := make([]consumer.ConsumerRecord, 0, len(items))
+func itemsToRecords(items []map[string]types.AttributeValue) ([]consumer.Record, error) {
+	records := make([]consumer.Record, 0, len(items))
 	for _, item := range items {
 		rec, err := itemToRecord(item)
 		if err != nil {
@@ -315,48 +315,48 @@ func itemsToRecords(items []map[string]types.AttributeValue) ([]consumer.Consume
 	return records, nil
 }
 
-func itemToRecord(item map[string]types.AttributeValue) (consumer.ConsumerRecord, error) {
+func itemToRecord(item map[string]types.AttributeValue) (consumer.Record, error) {
 	subscriptionAttr, ok := item["subscription"].(*types.AttributeValueMemberS)
 	if !ok {
-		return consumer.ConsumerRecord{}, fmt.Errorf("missing or invalid subscription attribute")
+		return consumer.Record{}, fmt.Errorf("missing or invalid subscription attribute")
 	}
 
 	providerAttr, ok := item["provider"].(*types.AttributeValueMemberS)
 	if !ok {
-		return consumer.ConsumerRecord{}, fmt.Errorf("missing or invalid provider attribute")
+		return consumer.Record{}, fmt.Errorf("missing or invalid provider attribute")
 	}
 	provider, err := did.Parse(providerAttr.Value)
 	if err != nil {
-		return consumer.ConsumerRecord{}, fmt.Errorf("parsing provider DID: %w", err)
+		return consumer.Record{}, fmt.Errorf("parsing provider DID: %w", err)
 	}
 
 	consumerAttr, ok := item["consumer"].(*types.AttributeValueMemberS)
 	if !ok {
-		return consumer.ConsumerRecord{}, fmt.Errorf("missing or invalid consumer attribute")
+		return consumer.Record{}, fmt.Errorf("missing or invalid consumer attribute")
 	}
 	space, err := did.Parse(consumerAttr.Value)
 	if err != nil {
-		return consumer.ConsumerRecord{}, fmt.Errorf("parsing consumer DID: %w", err)
+		return consumer.Record{}, fmt.Errorf("parsing consumer DID: %w", err)
 	}
 
 	customerAttr, ok := item["customer"].(*types.AttributeValueMemberS)
 	if !ok {
-		return consumer.ConsumerRecord{}, fmt.Errorf("missing or invalid customer attribute")
+		return consumer.Record{}, fmt.Errorf("missing or invalid customer attribute")
 	}
 	customerDID, err := did.Parse(customerAttr.Value)
 	if err != nil {
-		return consumer.ConsumerRecord{}, fmt.Errorf("parsing customer DID: %w", err)
+		return consumer.Record{}, fmt.Errorf("parsing customer DID: %w", err)
 	}
 
 	var cause cid.Cid
 	if causeAttr, ok := item["cause"].(*types.AttributeValueMemberS); ok {
 		cause, err = cid.Parse(causeAttr.Value)
 		if err != nil {
-			return consumer.ConsumerRecord{}, fmt.Errorf("parsing cause CID: %w", err)
+			return consumer.Record{}, fmt.Errorf("parsing cause CID: %w", err)
 		}
 	}
 
-	return consumer.ConsumerRecord{
+	return consumer.Record{
 		Subscription: subscriptionAttr.Value,
 		Provider:     provider,
 		Consumer:     space,
