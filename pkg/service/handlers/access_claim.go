@@ -3,189 +3,218 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime/datamodel"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	"github.com/ipld/go-ipld-prime/node/basicnode"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/invocation"
-	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/principal/absentee"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
-	"go.uber.org/zap"
-
+	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/pkg/identity"
-	"github.com/storacha/sprue/pkg/state"
+	"github.com/storacha/sprue/pkg/internal/ipldutil"
+	"github.com/storacha/sprue/pkg/lib/didmailto"
+	"github.com/storacha/sprue/pkg/lib/errors"
+	"github.com/storacha/sprue/pkg/lib/ucans"
+	"github.com/storacha/sprue/pkg/store"
+	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
+	"go.uber.org/zap"
 )
 
+const InvalidClaimAudienceErrorName = "InvalidClaimAudience"
+
+var ErrInvalidClaimAudience = errors.New(InvalidClaimAudienceErrorName, "invalid claim audience DID")
+
 // WithAccessClaimMethod registers the access/claim handler.
-// This handler returns delegations for any pending auth requests.
-func WithAccessClaimMethod(id *identity.Identity, stateStore state.StateStore, logger *zap.Logger) server.Option {
+func WithAccessClaimMethod(id *identity.Identity, delegationStore delegation_store.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.ClaimAbility,
 		server.Provide(
 			access.Claim,
-			func(ctx context.Context,
-				cap ucan.Capability[access.ClaimCaveats],
-				inv invocation.Invocation,
-				iCtx server.InvocationContext,
-			) (result.Result[access.ClaimOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				agentDID := inv.Issuer().DID().String()
-				logger.Debug("access/claim", zap.String("agent", agentDID))
-
-				// Find pending auth requests for this agent
-				requests, err := stateStore.GetAuthRequestsByAgent(ctx, agentDID)
-				if err != nil {
-					logger.Error("failed to get auth requests", zap.Error(err))
-					return nil, nil, fmt.Errorf("getting auth requests: %w", err)
-				}
-				logger.Debug("found pending requests", zap.Int("count", len(requests)))
-
-				delegationsMap := make(map[string][]byte)
-				var keys []string
-
-				for _, req := range requests {
-					// Create delegation from account (using absentee signer) to agent with full access
-					accountDel, err := createAccountDelegation(agentDID, req.AccountDID, req.RequestLink)
-					if err != nil {
-						return nil, nil, fmt.Errorf("creating account delegation: %w", err)
-					}
-
-					// Create ucan/attest session proof from service attesting to the delegation
-					sessionProof, err := createSessionProof(id.Signer, agentDID, accountDel.Link())
-					if err != nil {
-						return nil, nil, fmt.Errorf("creating session proof: %w", err)
-					}
-
-					// Archive account delegation to bytes
-					accountArchiveReader := accountDel.Archive()
-					accountArchive, err := io.ReadAll(accountArchiveReader)
-					if err != nil {
-						return nil, nil, fmt.Errorf("reading account delegation archive: %w", err)
-					}
-
-					// Archive session proof to bytes
-					sessionArchiveReader := sessionProof.Archive()
-					sessionArchive, err := io.ReadAll(sessionArchiveReader)
-					if err != nil {
-						return nil, nil, fmt.Errorf("reading session proof archive: %w", err)
-					}
-
-					// Add account delegation
-					accountLinkStr := accountDel.Link().String()
-					delegationsMap[accountLinkStr] = accountArchive
-					keys = append(keys, accountLinkStr)
-					logger.Debug("created account delegation",
-						zap.String("link", accountLinkStr),
-						zap.String("account", req.AccountDID),
-						zap.Int("size", len(accountArchive)))
-
-					// Add session proof
-					sessionLinkStr := sessionProof.Link().String()
-					delegationsMap[sessionLinkStr] = sessionArchive
-					keys = append(keys, sessionLinkStr)
-					logger.Debug("created session proof",
-						zap.String("link", sessionLinkStr),
-						zap.String("attesting", accountLinkStr),
-						zap.Int("size", len(sessionArchive)))
-
-					// Mark as claimed
-					if err := stateStore.MarkAuthRequestClaimed(ctx, req.RequestLink); err != nil {
-						logger.Error("failed to mark auth request claimed", zap.Error(err))
-					}
-				}
-
-				return result.Ok[access.ClaimOk, failure.IPLDBuilderFailure](access.ClaimOk{
-					Delegations: access.DelegationsModel{
-						Keys:   keys,
-						Values: delegationsMap,
-					},
-				}), nil, nil
-			},
+			AccessClaimHandler(id, delegationStore, logger),
 		),
 	)
 }
 
-// accessRequestFact implements ucan.FactBuilder for the access/request fact.
-type accessRequestFact struct {
-	requestLink cid.Cid
+func AccessClaimHandler(id *identity.Identity, delegationStore delegation_store.Store, logger *zap.Logger) server.HandlerFunc[access.ClaimCaveats, access.ClaimOk, failure.IPLDBuilderFailure] {
+	log := logger.With(zap.String("handler", access.ClaimAbility))
+	return func(ctx context.Context,
+		cap ucan.Capability[access.ClaimCaveats],
+		inv invocation.Invocation,
+		iCtx server.InvocationContext,
+	) (result.Result[access.ClaimOk, failure.IPLDBuilderFailure], fx.Effects, error) {
+		agent := inv.Issuer().DID()
+		audience, err := did.Parse(cap.With())
+		if err != nil {
+			log.Warn("invalid audience", zap.String("audience", cap.With()))
+			return result.Error[access.ClaimOk, failure.IPLDBuilderFailure](ErrInvalidClaimAudience), nil, nil
+		}
+
+		log := log.With(
+			zap.Stringer("agent", agent),
+			zap.Stringer("audience", audience),
+		)
+		log.Debug("claiming delegations")
+
+		dlgs := map[cid.Cid]delegation.Delegation{}
+		var cursor *string
+		for {
+			var opts []delegation_store.ListByAudienceOption
+			if cursor != nil {
+				opts = append(opts, delegation_store.WithListByAudienceCursor(*cursor))
+			}
+			page, err := delegationStore.ListByAudience(ctx, audience, opts...)
+			if err != nil {
+				return nil, nil, fmt.Errorf("listing delegations: %w", err)
+			}
+			for _, dlg := range page.Results {
+				root, err := ipldutil.ToCID(dlg.Link())
+				if err != nil {
+					log.Warn("invalid delegation CID", zap.String("root", dlg.Link().String()), zap.Error(err))
+					continue
+				}
+				dlgs[root] = dlg
+			}
+			if page.Cursor == nil {
+				break
+			}
+			cursor = page.Cursor
+		}
+
+		refreshedDlgs := map[cid.Cid]delegation.Delegation{}
+		// Find any attested ucan:* delegations and replace them with fresh ones.
+		for root, dlg := range dlgs {
+			if len(dlg.Capabilities()) == 0 {
+				log.Warn("delegation with no capabilities", zap.String("root", dlg.Link().String()))
+				refreshedDlgs[root] = dlg
+				continue
+			}
+
+			// Ignore delegations that aren't attestations, and ours.
+			cap := dlg.Capabilities()[0]
+
+			var err error
+			match, err := ucancap.Attest.Match(validator.NewSource(cap, dlg))
+			if err != nil {
+				refreshedDlgs[root] = dlg
+				continue
+			}
+			if match.Value().With() != id.DID() {
+				refreshedDlgs[root] = dlg
+				continue
+			}
+
+			// Ignore invalid attestations.
+			if valid, _ := ucan.VerifySignature(dlg.Data(), id.Signer.Verifier()); !valid {
+				refreshedDlgs[root] = dlg
+				continue
+			}
+			if ucan.IsTooEarly(dlg) || ucan.IsExpired(dlg) {
+				refreshedDlgs[root] = dlg
+				continue
+			}
+
+			attestedDlgRoot, err := ipldutil.ToCID(match.Value().Nb().Proof)
+			if err != nil {
+				log.Warn("invalid proof CID in attestation", zap.String("proof", match.Value().Nb().Proof.String()), zap.Error(err))
+				refreshedDlgs[root] = dlg
+				continue
+			}
+
+			// Ignore attestations of delegations we don't have.
+			attestedDlg, ok := dlgs[attestedDlgRoot]
+			if !ok {
+				refreshedDlgs[root] = dlg
+				continue
+			}
+
+			// Create new session proofs for the attested delegation.
+			sessionPrfs, err := createSessionProofsForLogin(
+				ctx,
+				id.Signer,
+				delegationStore,
+				attestedDlg,
+			)
+			if err != nil {
+				log.Error("failed to create session proofs for login", zap.Error(err))
+				return nil, nil, fmt.Errorf("creating session proofs for login: %w", err)
+			}
+			for _, d := range sessionPrfs {
+				root, err := ipldutil.ToCID(d.Link())
+				if err != nil {
+					return nil, nil, fmt.Errorf("getting CID of session proof delegation: %w", err)
+				}
+				refreshedDlgs[root] = d
+			}
+		}
+
+		mdl := access.DelegationsModel{Values: map[string][]byte{}}
+		for _, d := range dlgs {
+			k := d.Link().String()
+			v, err := ucans.ArchiveDelegations(d)
+			if err != nil {
+				log.Error("failed to archive delegation", zap.Error(err))
+				return nil, nil, fmt.Errorf("archiving delegation: %w", err)
+			}
+			mdl.Keys = append(mdl.Keys, k)
+			mdl.Values[k] = v
+		}
+
+		return result.Ok[access.ClaimOk, failure.IPLDBuilderFailure](access.ClaimOk{
+			Delegations: mdl,
+		}), nil, nil
+	}
 }
 
-func (f accessRequestFact) ToIPLD() (map[string]datamodel.Node, error) {
-	link := cidlink.Link{Cid: f.requestLink}
-	return map[string]datamodel.Node{
-		access.AuthorizeRequestFactKey: basicnode.NewLink(link),
-	}, nil
-}
-
-// createAccountDelegation creates a delegation from the account to the agent.
-// The account uses an absentee signer (since did:mailto can't actually sign).
-// The requestLink is added as a fact so clients can verify this delegation was created for
-// a specific access/authorize request.
-func createAccountDelegation(agentDID, accountDID, requestLink string) (delegation.Delegation, error) {
-	agent, err := did.Parse(agentDID)
+func createSessionProofsForLogin(
+	ctx context.Context,
+	service ucan.Signer,
+	delegationStore delegation_store.Store,
+	loginDlg delegation.Delegation,
+) ([]delegation.Delegation, error) {
+	// These should always be accounts (did:mailto:), but if one's not, skip it.
+	account, err := didmailto.Parse(loginDlg.Issuer().DID().String())
 	if err != nil {
-		return nil, fmt.Errorf("parsing agent DID: %w", err)
+		return []delegation.Delegation{}, nil
 	}
 
-	account, err := did.Parse(accountDID)
+	accountDlgs, err := store.Collect(ctx, func(ctx context.Context, options store.PaginationConfig) (store.Page[delegation.Delegation], error) {
+		var opts []delegation_store.ListByAudienceOption
+		if options.Cursor != nil {
+			opts = append(opts, delegation_store.WithListByAudienceCursor(*options.Cursor))
+		}
+		return delegationStore.ListByAudience(ctx, account, opts...)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("parsing account DID: %w", err)
+		return nil, fmt.Errorf("collecting delegations for account: %w", err)
 	}
 
-	// Parse the request link as a CID
-	requestCID, err := cid.Parse(requestLink)
-	if err != nil {
-		return nil, fmt.Errorf("parsing request link: %w", err)
+	caps := make([]ucan.Capability[ucan.NoCaveats], 0, len(loginDlg.Capabilities()))
+	for _, cap := range loginDlg.Capabilities() {
+		caps = append(caps, ucan.NewCapability(cap.Can(), cap.With(), ucan.NoCaveats{}))
 	}
 
-	// Create an absentee signer for the account (since did:mailto can't sign)
-	accountSigner := absentee.From(account)
-
-	// Grant full universal access (ucan:* means any resource)
-	// This allows the agent to act on behalf of the account for all operations
-	capabilities := []ucan.Capability[ucan.NoCaveats]{
-		ucan.NewCapability("*", "ucan:*", ucan.NoCaveats{}),
-	}
-
-	// Add fact with the access/request link
-	facts := []ucan.FactBuilder{
-		accessRequestFact{requestLink: requestCID},
-	}
-
-	return delegation.Delegate(
-		accountSigner,
-		agent,
-		capabilities,
-		delegation.WithNoExpiration(),
-		delegation.WithFacts(facts),
+	dlg, attestation, err := createSessionProofs(
+		service,
+		absentee.From(account),
+		loginDlg.Audience(),
+		toFactBuilders(loginDlg.Facts()),
+		caps,
+		// We include all the delegations to the account so that the agent will
+		// have delegation chains to all the delegated resources.
+		// We should actually filter out only delegations that support delegated
+		// capabilities, but for now we just include all of them since we only
+		// implement sudo access anyway.
+		accountDlgs,
 	)
-}
-
-// createSessionProof creates a ucan/attest delegation that attests to the account delegation.
-// This proves the service has verified the account authorized the agent.
-func createSessionProof(serviceSigner principal.Signer, agentDID string, proofLink ipld.Link) (delegation.Delegation, error) {
-	agent, err := did.Parse(agentDID)
 	if err != nil {
-		return nil, fmt.Errorf("parsing agent DID: %w", err)
+		return nil, fmt.Errorf("creating session proofs: %w", err)
 	}
-
-	// Create ucan/attest capability
-	return ucancap.Attest.Delegate(
-		serviceSigner,
-		agent,
-		serviceSigner.DID().String(),
-		ucancap.AttestCaveats{Proof: proofLink},
-		delegation.WithNoExpiration(),
-	)
+	return []delegation.Delegation{dlg, attestation}, nil
 }

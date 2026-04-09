@@ -55,9 +55,9 @@ func createAWSStore(t *testing.T) subscription.Store {
 	return s
 }
 
-func listAllSubscriptions(t *testing.T, s subscription.Store, provider, customer did.DID) []subscription.SubscriptionRecord {
+func listAllSubscriptions(t *testing.T, s subscription.Store, provider, customer did.DID) []subscription.Record {
 	t.Helper()
-	subs, err := store.Collect(t.Context(), func(ctx context.Context, options store.PaginationConfig) (store.Page[subscription.SubscriptionRecord], error) {
+	subs, err := store.Collect(t.Context(), func(ctx context.Context, options store.PaginationConfig) (store.Page[subscription.Record], error) {
 		opts := []subscription.ListByProviderAndCustomerOption{subscription.WithListByProviderAndCustomerLimit(1000)}
 		if options.Cursor != nil {
 			opts = append(opts, subscription.WithListByProviderAndCustomerCursor(*options.Cursor))

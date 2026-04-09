@@ -7,7 +7,7 @@ import (
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/sprue/pkg/store"
+	"github.com/storacha/sprue/pkg/lib/errors"
 )
 
 const (
@@ -17,9 +17,9 @@ const (
 
 var (
 	// ErrInvocationNotFound indicates an invocation was not found that matches the passed details.
-	ErrInvocationNotFound = store.NewError(InvocationNotFoundErrorName, "invocation not found")
+	ErrInvocationNotFound = errors.New(InvocationNotFoundErrorName, "invocation not found")
 	// ErrReceiptNotFound indicates a receipt was not found that matches the passed details.
-	ErrReceiptNotFound = store.NewError(ReceiptNotFoundErrorName, "receipt not found")
+	ErrReceiptNotFound = errors.New(ReceiptNotFoundErrorName, "receipt not found")
 )
 
 type InvocationSource struct {
