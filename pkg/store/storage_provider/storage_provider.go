@@ -58,7 +58,7 @@ type Record struct {
 }
 
 type Store interface {
-	Put(ctx context.Context, providerID did.DID, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error
+	Put(ctx context.Context, endpoint url.URL, proof delegation.Delegation, weight int, replicationWeight *int) error
 	// Get a storage provider record by provider DID. May return
 	// [ErrStorageProviderNotFound].
 	Get(ctx context.Context, providerID did.DID) (Record, error)

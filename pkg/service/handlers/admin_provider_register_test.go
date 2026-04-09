@@ -75,7 +75,6 @@ func TestAdminProviderRegisterHandler(t *testing.T) {
 		require.NoError(t, err)
 
 		caveats := provider.RegisterCaveats{
-			Provider: storageProvider.DID(),
 			Endpoint: "https://piri.example.com",
 			Proof:    proof.Link(),
 		}
@@ -113,7 +112,6 @@ func TestAdminProviderRegisterHandler(t *testing.T) {
 		require.NoError(t, err)
 
 		caveats := provider.RegisterCaveats{
-			Provider: storageProvider.DID(),
 			Endpoint: "https://piri.example.com",
 			Proof:    proof.Link(),
 		}
@@ -158,7 +156,6 @@ func TestAdminProviderRegisterHandler(t *testing.T) {
 		require.NoError(t, err)
 
 		caveats := provider.RegisterCaveats{
-			Provider: storageProvider.DID(),
 			Endpoint: "https://piri.example.com",
 			Proof:    proof.Link(),
 		}
@@ -196,7 +193,6 @@ func TestAdminProviderRegisterHandler(t *testing.T) {
 		require.NoError(t, err)
 
 		caveats := provider.RegisterCaveats{
-			Provider: storageProvider.DID(),
 			Endpoint: "https://piri.example.com",
 			Proof:    proof.Link(),
 		}

@@ -66,6 +66,14 @@ var Module = fx.Module("service-handlers",
 			fx.ResultTags(`group:"ucan_options"`),
 		),
 		fx.Annotate(
+			handlers.WithUploadListMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
+			handlers.WithUploadShardListMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
 			handlers.NewHTTPPutConcludeHandler,
 			fx.ResultTags(`group:"ucan_conclude_handlers"`),
 		),
