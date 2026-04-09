@@ -28,12 +28,12 @@ import (
 )
 
 const (
-	InvalidReplicaTransferArgsErrorName       = "InvalidReplicaTransferArgs"
-	InvalidReplicaTransferCauseErrorName      = "InvalidReplicaTransferCause"
-	UnknownReplicaAllocationErrorName         = "UnknownReplicaAllocation"
-	ReplicaTransferParameterMismatchErrorName = "ReplicaTransferParameterMismatch"
-	ReplicaAllocationFailedErrorName          = "ReplicaAllocationFailed"
-	InvalidTransferReceiptSignatureErrorName  = "InvalidTransferReceiptSignature"
+	InvalidReplicaTransferArgsErrorName      = "InvalidReplicaTransferArgs"
+	InvalidReplicaTransferCauseErrorName     = "InvalidReplicaTransferCause"
+	UnknownReplicaAllocationErrorName        = "UnknownReplicaAllocation"
+	ReplicaTransferArgMismatchErrorName      = "ReplicaTransferArgMismatch"
+	ReplicaAllocationFailedErrorName         = "ReplicaAllocationFailed"
+	InvalidTransferReceiptSignatureErrorName = "InvalidTransferReceiptSignature"
 )
 
 var ErrInvalidTransferReceiptSignature = errors.New(InvalidTransferReceiptSignatureErrorName, "invalid transfer receipt signature")
@@ -121,7 +121,7 @@ func NewBlobReplicaTransferConcludeHandler(
 
 			if executor.DID() != allocTask.Audience().DID() {
 				log.Warn("transfer executor does not match replica allocation audience", zap.Stringer("expected", allocTask.Audience().DID()))
-				return errors.New(ReplicaTransferParameterMismatchErrorName, "transfer executor does not match replica allocation audience")
+				return errors.New(ReplicaTransferArgMismatchErrorName, "transfer executor does not match replica allocation audience")
 			}
 
 			updateReplicaStatus := func(status replica.ReplicationStatus) error {
@@ -193,7 +193,7 @@ func NewBlobReplicaTransferConcludeHandler(
 				transferArgs.Space != allocArgs.Space {
 				log.Warn("transfer parameters do not match allocation parameters")
 				_ = updateReplicaStatus(replica.Failed)
-				return errors.New(ReplicaTransferParameterMismatchErrorName, "transfer parameters do not match allocation parameters")
+				return errors.New(ReplicaTransferArgMismatchErrorName, "transfer parameters do not match allocation parameters")
 			}
 
 			status := result.MatchResultR1(
