@@ -10,12 +10,18 @@ import (
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
+	"github.com/storacha/sprue/pkg/piriclient"
 )
 
 // ClientsModule provides external service clients.
 var ClientsModule = fx.Module("clients",
 	fx.Provide(NewIndexerClient),
+	fx.Provide(NewPiriClientProvider),
 )
+
+func NewPiriClientProvider(id *identity.Identity, logger *zap.Logger) piriclient.Provider {
+	return piriclient.NewProvider(id.Signer, logger)
+}
 
 // IndexerClientResult wraps the optional indexer client.
 // Using fx.Out with optional tag allows this provider to return nil

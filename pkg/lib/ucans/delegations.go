@@ -70,7 +70,7 @@ func ExtractDelegations(b []byte) ([]delegation.Delegation, error) {
 	if err != nil {
 		return nil, err
 	}
-	dlgs := make([]delegation.Delegation, len(roots))
+	dlgs := make([]delegation.Delegation, 0, len(roots))
 	for _, root := range roots {
 		d, err := delegation.NewDelegationView(root, bs)
 		if err != nil {

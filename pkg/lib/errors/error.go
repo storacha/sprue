@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/ipld/go-ipld-prime/datamodel"
-	"github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-ucanto/core/ipld"
+	"github.com/ipld/go-ipld-prime/fluent"
+	"github.com/ipld/go-ipld-prime/node/basicnode"
 )
 
 type ErrorModel struct {
@@ -33,5 +33,8 @@ func (em ErrorModel) Error() string {
 }
 
 func (em ErrorModel) ToIPLD() (datamodel.Node, error) {
-	return ipld.WrapWithRecovery(&em, ErrorType(), types.Converters...)
+	return fluent.BuildMap(basicnode.Prototype.Map, 2, func(ma fluent.MapAssembler) {
+		ma.AssembleEntry("name").AssignString(em.ErrorName)
+		ma.AssembleEntry("message").AssignString(em.Message)
+	})
 }

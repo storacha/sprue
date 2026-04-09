@@ -31,7 +31,6 @@ import (
 	"github.com/storacha/sprue/pkg/lib/ucans"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	"github.com/storacha/sprue/pkg/service/ui"
-	"github.com/storacha/sprue/pkg/state"
 	"github.com/storacha/sprue/pkg/store/agent"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )
@@ -39,7 +38,6 @@ import (
 // Service implements the sprue upload service logic.
 type Service struct {
 	identity        *identity.Identity
-	state           state.StateStore
 	agentStore      agent.Store
 	delegationStore delegation_store.Store
 	indexerClient   *indexerclient.Client
@@ -49,10 +47,9 @@ type Service struct {
 }
 
 // New creates a new Service instance.
-func New(id *identity.Identity, store state.StateStore, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
+func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
 	svc := &Service{
 		identity:        id,
-		state:           store,
 		agentStore:      agentStore,
 		delegationStore: delegationStore,
 		indexerClient:   indexerClient,
@@ -236,11 +233,14 @@ func (s *Service) authorize(ctx context.Context, ucan string) (authorizationResu
 
 	var confirmDlgs []delegation.Delegation
 	for _, bytes := range o.Delegations.Values {
-		d, err := delegation.Extract(bytes)
+		dlgs, err := ucans.ExtractDelegations(bytes)
 		if err != nil {
-			return authorizationResult{}, fmt.Errorf("extracting delegation from confirmation result: %w", err)
+			return authorizationResult{}, fmt.Errorf("extracting delegations from confirmation result: %w", err)
 		}
-		confirmDlgs = append(confirmDlgs, d)
+		if len(dlgs) != 1 {
+			return authorizationResult{}, fmt.Errorf("unexpected number of delegations found in confirmation result")
+		}
+		confirmDlgs = append(confirmDlgs, dlgs[0])
 	}
 
 	ucan, err = ucans.FormatDelegations(confirmDlgs...)
