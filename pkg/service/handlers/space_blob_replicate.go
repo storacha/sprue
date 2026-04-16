@@ -309,8 +309,8 @@ func SpaceBlobReplicateHandler(
 					allocTasks = append(allocTasks, allocInv)
 					allocReceipts = append(allocReceipts, allocRcpt)
 					transferTasks = append(transferTasks, allocRes.Transfer)
-					// exclude this provider from next candidate selection (incase there
-					// are more) replicas to be allocated.
+					// exclude this provider from next candidate selection (in case there
+					// are more replicas to be allocated).
 					exclude = append(exclude, candidate.ID)
 					break
 				}
