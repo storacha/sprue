@@ -1,6 +1,30 @@
 # Sprue
 
-The Storacha upload service in Go.
+The Forge upload service in Go (formerly the Storacha upload service).
+
+## Running locally
+
+The repo ships a `docker-compose.yaml` that brings up sprue alongside
+PostgreSQL and MinIO for self-hosted development:
+
+```bash
+docker compose up -d postgres minio
+SPRUE_STORAGE_POSTGRES_DSN="postgres://sprue:sprue@localhost:5432/sprue?sslmode=disable" \
+  ./sprue serve
+```
+
+Postgres is the default store backend, so no extra flag is required.
+
+## Store backends
+
+Sprue supports three store backends, selected by
+`storage.type` (or `SPRUE_STORAGE_TYPE`; defaults to `postgres`):
+
+- `memory` — in-process only; all data is lost on restart. Dev/test only.
+- `postgres` — PostgreSQL for metadata + S3-compatible storage (MinIO, Ceph, AWS S3)
+  for blob payloads. Schema is managed by goose migrations embedded in
+  `internal/migrations/sql/` and applied on startup.
+- `aws` — DynamoDB for metadata + S3 for blob payloads.
 
 ## Notes
 

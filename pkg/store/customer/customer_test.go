@@ -11,17 +11,19 @@ import (
 	"github.com/storacha/sprue/pkg/store/customer"
 	customeraws "github.com/storacha/sprue/pkg/store/customer/aws"
 	"github.com/storacha/sprue/pkg/store/customer/memory"
+	customerpostgres "github.com/storacha/sprue/pkg/store/customer/postgres"
 	"github.com/stretchr/testify/require"
 )
 
 type StoreKind string
 
 const (
-	Memory StoreKind = "memory"
-	AWS    StoreKind = "aws"
+	Memory   StoreKind = "memory"
+	AWS      StoreKind = "aws"
+	Postgres StoreKind = "postgres"
 )
 
-var storeKinds = []StoreKind{Memory, AWS}
+var storeKinds = []StoreKind{Memory, AWS, Postgres}
 
 func makeStore(t *testing.T, k StoreKind) customer.Store {
 	switch k {
@@ -29,8 +31,23 @@ func makeStore(t *testing.T, k StoreKind) customer.Store {
 		return memory.New()
 	case AWS:
 		return createAWSStore(t)
+	case Postgres:
+		return createPostgresStore(t)
 	}
 	panic("unknown store kind")
+}
+
+func createPostgresStore(t *testing.T) customer.Store {
+	if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+		if !testutil.IsDockerAvailable(t) {
+			t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+		}
+	}
+	if !testutil.IsDockerAvailable(t) {
+		t.SkipNow()
+	}
+	pool := testutil.CreatePostgres(t)
+	return customerpostgres.New(pool)
 }
 
 func createAWSStore(t *testing.T) customer.Store {
