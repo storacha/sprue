@@ -58,10 +58,6 @@ var DynamoSubscriptionTableProps = struct {
 					AttributeName: aws.String("provider"),
 					KeyType:       types.KeyTypeRange,
 				},
-				{
-					AttributeName: aws.String("subscription"),
-					KeyType:       types.KeyTypeRange,
-				},
 			},
 			Projection: &types.Projection{
 				ProjectionType: types.ProjectionTypeAll,
