@@ -4,17 +4,22 @@ ARG TARGETARCH
 ARG TARGETOS=linux
 WORKDIR /go/src/sprue
 COPY go.mod go.sum* ./
-RUN go mod download || true
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download || true
 COPY . .
 
 # Production build - stripped binary
 FROM build AS build-prod
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /sprue ./cmd/main.go
 
 # Development build - debug-friendly binary
 FROM build AS build-dev
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -gcflags="all=-N -l" -o /sprue ./cmd/main.go
 RUN GOARCH=${TARGETARCH} go install github.com/go-delve/delve/cmd/dlv@latest && \
     cp /go/bin/linux_${TARGETARCH}/dlv /go/bin/dlv 2>/dev/null || cp /go/bin/dlv /go/bin/dlv 2>/dev/null || true
