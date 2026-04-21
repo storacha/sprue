@@ -54,6 +54,10 @@ var Module = fx.Module("service-handlers",
 			fx.ResultTags(`group:"ucan_options"`),
 		),
 		fx.Annotate(
+			handlers.WithSpaceInfoMethod,
+			fx.ResultTags(`group:"ucan_options"`),
+		),
+		fx.Annotate(
 			handlers.WithSpaceIndexAddMethod,
 			fx.ResultTags(`group:"ucan_options"`),
 		),
