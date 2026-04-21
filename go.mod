@@ -3,6 +3,7 @@ module github.com/storacha/sprue
 go 1.25.3
 
 require (
+	github.com/alanshaw/ucantone v0.0.0-20260414093722-cabf56836b2f
 	github.com/aws/aws-sdk-go-v2 v1.41.3
 	github.com/aws/aws-sdk-go-v2/config v1.32.11
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11
@@ -28,6 +29,11 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/minio v0.40.0
 	go.uber.org/fx v1.24.0
 	go.uber.org/zap v1.27.0
+)
+
+require (
+	github.com/alanshaw/dag-json-gen v0.0.4 // indirect
+	pitr.ca/jsontokenizer v0.3.0 // indirect
 )
 
 require (

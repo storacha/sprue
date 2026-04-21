@@ -9,22 +9,23 @@ import (
 	"net/http"
 	"slices"
 
+	edm "github.com/alanshaw/ucantone/errors/datamodel"
+	"github.com/alanshaw/ucantone/execution"
+	"github.com/alanshaw/ucantone/ipld"
+	"github.com/alanshaw/ucantone/ipld/datamodel"
+	"github.com/alanshaw/ucantone/result"
+	"github.com/alanshaw/ucantone/server"
+	"github.com/alanshaw/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/car"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/go-ucanto/core/result"
-	"github.com/storacha/go-ucanto/server"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
-	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/go-ucanto/validator"
-	"go.uber.org/zap"
-
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/lib/didmailto"
@@ -33,6 +34,7 @@ import (
 	"github.com/storacha/sprue/pkg/service/ui"
 	"github.com/storacha/sprue/pkg/store/agent"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
+	"go.uber.org/zap"
 )
 
 // Service implements the sprue upload service logic.
@@ -42,12 +44,12 @@ type Service struct {
 	delegationStore delegation_store.Store
 	indexerClient   *indexerclient.Client
 	logger          *zap.Logger
-	ucanServer      server.ServerView[server.Service]
-	options         []server.Option
+	ucanServer      *server.HTTPServer
+	options         []server.HTTPOption
 }
 
 // New creates a new Service instance.
-func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
+func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.HTTPOption) (*Service, error) {
 	svc := &Service{
 		identity:        id,
 		agentStore:      agentStore,
@@ -58,28 +60,57 @@ func New(id *identity.Identity, agentStore agent.Store, delegationStore delegati
 	}
 
 	// Create UCAN server with handlers
-	ucanSrv, err := svc.createUCANServer()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create UCAN server: %w", err)
-	}
-	svc.ucanServer = ucanSrv
+	svc.ucanServer = svc.createUCANServer()
 
 	return svc, nil
 }
 
 // createUCANServer creates the UCAN RPC server with registered handlers.
-func (s *Service) createUCANServer() (server.ServerView[server.Service], error) {
-	log := s.logger
+func (s *Service) createUCANServer() *server.HTTPServer {
 	options := append(
 		slices.Clone(s.options),
-		server.WithErrorHandler(func(err server.HandlerExecutionError[any]) {
-			if stack := err.Stack(); stack != "" {
-				log = log.With(zap.String("stack", stack))
-			}
-			log.Error("handler execution", zap.Error(err))
-		}),
+		server.WithEventListener(requestLoggerListener{logger: s.logger, agentStore: s.agentStore}),
+		server.WithEventListener(errorListener{logger: s.logger}),
 	)
-	return server.NewServer(s.identity.Signer, options...)
+	return server.NewHTTP(s.identity.Signer, options...)
+}
+
+type errorListener struct {
+	logger *zap.Logger
+}
+
+var _ server.ResponseEncodeListener = (*errorListener)(nil)
+
+func (l errorListener) OnResponseEncode(ctx context.Context, ct ucan.Container) error {
+	for _, inv := range ct.Invocations() {
+		if r, ok := ct.Receipt(inv.Task().Link()); ok {
+			_, x := result.Unwrap(r.Out())
+			if x != nil {
+				var model edm.ErrorModel
+				datamodel.Rebind(datamodel.NewAny(x), &model)
+				if model.ErrorName == execution.HandlerExecutionErrorName {
+					l.logger.Error("handler execution error", zap.Error(model))
+				}
+			}
+		}
+	}
+	return nil
+}
+
+type requestLoggerListener struct {
+	logger     *zap.Logger
+	agentStore agent.Store
+}
+
+var _ server.RequestDecodeListener = (*requestLoggerListener)(nil)
+var _ server.ResponseEncodeListener = (*requestLoggerListener)(nil)
+
+func (r *requestLoggerListener) OnRequestDecode(ctx context.Context, ct ucan.Container) error {
+	panic("unimplemented")
+}
+
+func (r *requestLoggerListener) OnResponseEncode(ctx context.Context, ct ucan.Container) error {
+	panic("unimplemented")
 }
 
 // HandleUCANRequest handles incoming UCAN RPC requests.
@@ -96,6 +127,8 @@ func (s *Service) HandleUCANRequest(c echo.Context) error {
 	if err != nil {
 		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
 	}
+
+	s.ucanServer.RoundTrip()
 
 	res, err := s.ucanServer.Request(r.Context(), ucanhttp.NewRequest(bytes.NewReader(inBytes), r.Header))
 	if err != nil {
