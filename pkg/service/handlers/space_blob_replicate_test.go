@@ -442,7 +442,7 @@ func (m *multiMockReplicaNodeProvider) Client(id ucan.Principal, endpoint url.UR
 	if err != nil {
 		return nil, err
 	}
-	return piriclient.NewWithConnection(id.DID(), m.agentID, conn, m.logger), nil
+	return piriclient.NewWithClient(id.DID(), m.agentID, conn, m.logger), nil
 }
 
 func newMultiMockReplicaNodeProvider(

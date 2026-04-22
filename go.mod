@@ -3,7 +3,7 @@ module github.com/storacha/sprue
 go 1.25.3
 
 require (
-	github.com/alanshaw/ucantone v0.0.0-20260414093722-cabf56836b2f
+	github.com/alanshaw/ucantone v0.0.0-20260421195839-2264a6534d4f
 	github.com/aws/aws-sdk-go-v2 v1.41.3
 	github.com/aws/aws-sdk-go-v2/config v1.32.11
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11
@@ -12,7 +12,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4
 	github.com/google/uuid v1.6.0
 	github.com/ipfs/go-cid v0.6.0
-	github.com/ipfs/go-log/v2 v2.9.0
 	github.com/ipld/go-ipld-prime v0.21.1-0.20240917223228-6148356a4c2e
 	github.com/labstack/echo/v4 v4.14.0
 	github.com/multiformats/go-multiaddr v0.16.0
@@ -33,6 +32,8 @@ require (
 
 require (
 	github.com/alanshaw/dag-json-gen v0.0.4 // indirect
+	github.com/alanshaw/libracha v0.0.0-20260422134707-2a8d57799d30 // indirect
+	github.com/ipfs/go-log/v2 v2.9.0 // indirect
 	pitr.ca/jsontokenizer v0.3.0 // indirect
 )
 

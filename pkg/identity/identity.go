@@ -9,10 +9,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
-	ed25519 "github.com/storacha/go-ucanto/principal/ed25519/signer"
-	"github.com/storacha/go-ucanto/principal/signer"
+	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/principal"
+	"github.com/alanshaw/ucantone/principal/ed25519"
+	"github.com/alanshaw/ucantone/principal/signer"
 )
 
 // Identity holds the service's cryptographic identity.
@@ -53,7 +53,7 @@ func (i *Identity) DID() string {
 // For unwrapped signers, returns the same as DID().
 func (i *Identity) UnderlyingKeyDID() string {
 	// Try to unwrap if it's a wrapped signer
-	if wrapped, ok := i.Signer.(signer.WrappedSigner); ok {
+	if wrapped, ok := i.Signer.(signer.Unwrapper); ok {
 		return wrapped.Unwrap().DID().String()
 	}
 	return i.Signer.DID().String()

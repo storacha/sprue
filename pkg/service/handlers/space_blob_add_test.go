@@ -68,7 +68,7 @@ func (m *mockNodeProvider) Client(id ucan.Principal, endpoint url.URL) (*piricli
 	if err != nil {
 		return nil, err
 	}
-	return piriclient.NewWithConnection(id.DID(), m.signer, conn, m.logger), nil
+	return piriclient.NewWithClient(id.DID(), m.signer, conn, m.logger), nil
 }
 
 // newMockNodeProvider creates a mock NodeProvider backed by a UCAN server.

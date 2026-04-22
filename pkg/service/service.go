@@ -1,11 +1,9 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
 
@@ -20,11 +18,9 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/car"
-	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
-	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
@@ -69,19 +65,19 @@ func New(id *identity.Identity, agentStore agent.Store, delegationStore delegati
 func (s *Service) createUCANServer() *server.HTTPServer {
 	options := append(
 		slices.Clone(s.options),
-		server.WithEventListener(requestLoggerListener{logger: s.logger, agentStore: s.agentStore}),
-		server.WithEventListener(errorListener{logger: s.logger}),
+		server.WithEventListener(agentMessageLogger{logger: s.logger, agentStore: s.agentStore}),
+		server.WithEventListener(errorHandler{logger: s.logger}),
 	)
 	return server.NewHTTP(s.identity.Signer, options...)
 }
 
-type errorListener struct {
+type errorHandler struct {
 	logger *zap.Logger
 }
 
-var _ server.ResponseEncodeListener = (*errorListener)(nil)
+var _ server.ResponseEncodeListener = (*errorHandler)(nil)
 
-func (l errorListener) OnResponseEncode(ctx context.Context, ct ucan.Container) error {
+func (l errorHandler) OnResponseEncode(ctx context.Context, ct ucan.Container) error {
 	for _, inv := range ct.Invocations() {
 		if r, ok := ct.Receipt(inv.Task().Link()); ok {
 			_, x := result.Unwrap(r.Out())
@@ -89,7 +85,13 @@ func (l errorListener) OnResponseEncode(ctx context.Context, ct ucan.Container) 
 				var model edm.ErrorModel
 				datamodel.Rebind(datamodel.NewAny(x), &model)
 				if model.ErrorName == execution.HandlerExecutionErrorName {
-					l.logger.Error("handler execution error", zap.Error(model))
+					l.logger.Error(
+						"handler execution error",
+						zap.Stringer("task", inv.Task().Link()),
+						zap.Stringer("command", inv.Command()),
+						zap.Any("args", inv.Arguments()),
+						zap.Error(model),
+					)
 				}
 			}
 		}
@@ -97,94 +99,36 @@ func (l errorListener) OnResponseEncode(ctx context.Context, ct ucan.Container) 
 	return nil
 }
 
-type requestLoggerListener struct {
+type agentMessageLogger struct {
 	logger     *zap.Logger
 	agentStore agent.Store
 }
 
-var _ server.RequestDecodeListener = (*requestLoggerListener)(nil)
-var _ server.ResponseEncodeListener = (*requestLoggerListener)(nil)
+var _ server.RequestDecodeListener = (*agentMessageLogger)(nil)
+var _ server.ResponseEncodeListener = (*agentMessageLogger)(nil)
 
-func (r *requestLoggerListener) OnRequestDecode(ctx context.Context, ct ucan.Container) error {
-	panic("unimplemented")
+func (r *agentMessageLogger) OnRequestDecode(ctx context.Context, msg ucan.Container) error {
+	err := r.agentStore.Write(ctx, msg, agent.Index(msg))
+	if err != nil {
+		r.logger.Error("failed to write incoming agent message to store", zap.Error(err))
+		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
+	}
+	return nil
 }
 
-func (r *requestLoggerListener) OnResponseEncode(ctx context.Context, ct ucan.Container) error {
-	panic("unimplemented")
+func (r *agentMessageLogger) OnResponseEncode(ctx context.Context, msg ucan.Container) error {
+	err := r.agentStore.Write(ctx, msg, agent.Index(msg))
+	if err != nil {
+		r.logger.Error("failed to write outgoing agent message to store", zap.Error(err))
+		return fmt.Errorf("writing outgoing agent message to agent store: %w", err)
+	}
+	return nil
 }
 
 // HandleUCANRequest handles incoming UCAN RPC requests.
 func (s *Service) HandleUCANRequest(c echo.Context) error {
-	r := c.Request()
-
-	inBytes, inMsg, inIdx, err := decodeAndIndex(r.Body)
-	if err != nil {
-		return fmt.Errorf("decoding and indexing incoming agent message: %w", err)
-	}
-	r.Body.Close()
-
-	err = s.agentStore.Write(r.Context(), inMsg, inIdx, inBytes)
-	if err != nil {
-		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
-	}
-
-	s.ucanServer.RoundTrip()
-
-	res, err := s.ucanServer.Request(r.Context(), ucanhttp.NewRequest(bytes.NewReader(inBytes), r.Header))
-	if err != nil {
-		s.logger.Error("UCAN request error", zap.Error(err))
-		return fmt.Errorf("handling UCAN request: %w", err)
-	}
-
-	outBytes, outMsg, outIdx, err := decodeAndIndex(res.Body())
-	if err != nil {
-		return fmt.Errorf("decoding and indexing outgoing agent message: %w", err)
-	}
-	res.Body().Close()
-
-	err = s.agentStore.Write(r.Context(), outMsg, outIdx, outBytes)
-	if err != nil {
-		return fmt.Errorf("writing outgoing agent message to agent store: %w", err)
-	}
-
-	// Copy response headers
-	for key, vals := range res.Headers() {
-		for _, v := range vals {
-			c.Response().Header().Add(key, v)
-		}
-	}
-
-	return c.Stream(res.Status(), "", bytes.NewReader(outBytes))
-}
-
-func decodeAndIndex(r io.Reader) ([]byte, message.AgentMessage, []agent.IndexEntry, error) {
-	body, err := io.ReadAll(r)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("reading request body: %w", err)
-	}
-	roots, blocks, err := car.Decode(bytes.NewReader(body))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("decoding CAR: %w", err)
-	}
-	if len(roots) != 1 {
-		return nil, nil, nil, fmt.Errorf("expected exactly one root in CAR, got %d", len(roots))
-	}
-	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(blocks))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating block reader: %w", err)
-	}
-	msg, err := message.NewMessage(roots[0], br)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating agent message: %w", err)
-	}
-	var entries []agent.IndexEntry
-	for ent, err := range agent.Index(msg) {
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("indexing agent message: %w", err)
-		}
-		entries = append(entries, ent)
-	}
-	return body, msg, entries, nil
+	s.ucanServer.ServeHTTP(c.Response(), c.Request())
+	return nil
 }
 
 func (s *Service) HandleValidateEmailRequest(c echo.Context) error {

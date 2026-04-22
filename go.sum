@@ -49,8 +49,14 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/alanshaw/dag-json-gen v0.0.4 h1:qoryz04TVH6zu16NRFnzgolzQGaPfTvoIawv/F5rDoY=
 github.com/alanshaw/dag-json-gen v0.0.4/go.mod h1:rXxWw0SItP9QjxpRMpkju66h0KumF7TPCtvHdOKS5lY=
-github.com/alanshaw/ucantone v0.0.0-20260414093722-cabf56836b2f h1:91sh+yGYw+KezvTl4YessABVqO33X8nrSFIY/XI1q20=
-github.com/alanshaw/ucantone v0.0.0-20260414093722-cabf56836b2f/go.mod h1:BXcVQan1Acxuzvt7TEQip0+Pw1LEjZDqH+zgC7kXHW0=
+github.com/alanshaw/libracha v0.0.0-20260112114208-4f9010d963d3 h1:MrEFZ1qX2DI6k9YsSH7CjPjF/ACirm59cF9YPMsoOSA=
+github.com/alanshaw/libracha v0.0.0-20260112114208-4f9010d963d3/go.mod h1:sIHasp0Yp3twwQRkSI/npDUA4vzklhFBAMUgiZWzsZs=
+github.com/alanshaw/libracha v0.0.0-20260422120017-e8111035fd49 h1:e26ZFAwF7fBWno5KqqoxTBtSeRTOZwOUT2mvMQFvfoQ=
+github.com/alanshaw/libracha v0.0.0-20260422120017-e8111035fd49/go.mod h1:UBnX01FrsDmeV50EOcNuF9buYU0qJxEnOnV1cQXv7iM=
+github.com/alanshaw/libracha v0.0.0-20260422134707-2a8d57799d30 h1:zLg8cpTzjxHz0/BbcyETQT9F0WD6/lr9Ax6OM7zuW/c=
+github.com/alanshaw/libracha v0.0.0-20260422134707-2a8d57799d30/go.mod h1:mjVUoomRoQ0LHRkZxyx6ERJgMAY/uobSzCgknKggRrc=
+github.com/alanshaw/ucantone v0.0.0-20260421195839-2264a6534d4f h1:BKCzezww3E0MNnFH7jd7LX2zn8X3qdQdyOgbYnAJnys=
+github.com/alanshaw/ucantone v0.0.0-20260421195839-2264a6534d4f/go.mod h1:BXcVQan1Acxuzvt7TEQip0+Pw1LEjZDqH+zgC7kXHW0=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
 github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=
 github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da/go.mod h1:Q73ZrmVTwzkszR9V5SSuryQ31EELlFMUz1kKyl939pY=
