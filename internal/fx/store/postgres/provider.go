@@ -48,6 +48,7 @@ import (
 var Module = fx.Module("postgres-store",
 	fx.Provide(
 		NewPostgresPool,
+		NewMigratedPool,
 		// S3 client is still needed for the three stores (agent, delegation, upload)
 		// that persist blob payloads outside of the database.
 		awsstore.NewS3Client,
@@ -66,8 +67,16 @@ var Module = fx.Module("postgres-store",
 		fx.Annotate(NewSubscriptionStore, fx.As(new(subscription.Store))),
 		fx.Annotate(NewUploadStore, fx.As(new(upload.Store))),
 	),
-	fx.Invoke(RunMigrations),
 )
+
+// MigratedPool is a *pgxpool.Pool whose schema is guaranteed to be at the head
+// revision of internal/migrations by the time any OnStart hook that depends on
+// it runs. Store constructors depend on *MigratedPool rather than
+// *pgxpool.Pool so the fx dependency graph orders NewMigratedPool's migration
+// hook before every store's Initialize hook.
+type MigratedPool struct {
+	*pgxpool.Pool
+}
 
 // NewPostgresPool creates a pgx connection pool and registers a lifecycle hook
 // to close it at shutdown.
@@ -109,10 +118,13 @@ func NewPostgresPool(cfg config.PostgresConfig, lc fx.Lifecycle, logger *zap.Log
 	return pool, nil
 }
 
-// RunMigrations applies the embedded goose migrations at app start. It runs as
-// an fx.Invoke so it executes before any store Initialize hooks. Migrations are
-// skipped when storage.postgres.skip_migrations is true.
-func RunMigrations(lc fx.Lifecycle, cfg config.PostgresConfig, pool *pgxpool.Pool, logger *zap.Logger) {
+// NewMigratedPool registers an OnStart hook that runs goose migrations against
+// pool, and returns a *MigratedPool wrapper. Because every store constructor
+// depends on *MigratedPool, fx resolves this provider (and appends its OnStart
+// hook) before any store's Initialize hook is registered — and OnStart hooks
+// fire in registration order — so all stores see a fully migrated schema.
+// Migrations are skipped when storage.postgres.skip_migrations is true.
+func NewMigratedPool(lc fx.Lifecycle, cfg config.PostgresConfig, pool *pgxpool.Pool, logger *zap.Logger) *MigratedPool {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			if cfg.SkipMigrations {
@@ -123,10 +135,11 @@ func RunMigrations(lc fx.Lifecycle, cfg config.PostgresConfig, pool *pgxpool.Poo
 			return migrations.Up(ctx, pool, logger)
 		},
 	})
+	return &MigratedPool{Pool: pool}
 }
 
-func NewAgentStore(lc fx.Lifecycle, pool *pgxpool.Pool, s3Cfg config.S3Config, s3Client *s3.Client) agent.Store {
-	store := pgagent.New(pool, s3Client, s3Cfg.AgentMessageBucket)
+func NewAgentStore(lc fx.Lifecycle, mdb *MigratedPool, s3Cfg config.S3Config, s3Client *s3.Client) agent.Store {
+	store := pgagent.New(mdb.Pool, s3Client, s3Cfg.AgentMessageBucket)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -138,20 +151,20 @@ func NewAgentStore(lc fx.Lifecycle, pool *pgxpool.Pool, s3Cfg config.S3Config, s
 	return store
 }
 
-func NewBlobRegistryStore(pool *pgxpool.Pool, consumerStore consumer.Store) blobregistry.Store {
-	return pgblobregistry.New(pool, consumerStore)
+func NewBlobRegistryStore(mdb *MigratedPool, consumerStore consumer.Store) blobregistry.Store {
+	return pgblobregistry.New(mdb.Pool, consumerStore)
 }
 
-func NewConsumerStore(pool *pgxpool.Pool) consumer.Store {
-	return pgconsumer.New(pool)
+func NewConsumerStore(mdb *MigratedPool) consumer.Store {
+	return pgconsumer.New(mdb.Pool)
 }
 
-func NewCustomerStore(pool *pgxpool.Pool) customer.Store {
-	return pgcustomer.New(pool)
+func NewCustomerStore(mdb *MigratedPool) customer.Store {
+	return pgcustomer.New(mdb.Pool)
 }
 
-func NewDelegationStore(lc fx.Lifecycle, pool *pgxpool.Pool, s3Cfg config.S3Config, s3Client *s3.Client) delegation.Store {
-	store := pgdelegation.New(pool, s3Client, s3Cfg.DelegationBucket)
+func NewDelegationStore(lc fx.Lifecycle, mdb *MigratedPool, s3Cfg config.S3Config, s3Client *s3.Client) delegation.Store {
+	store := pgdelegation.New(mdb.Pool, s3Client, s3Cfg.DelegationBucket)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return store.Initialize(ctx)
@@ -160,34 +173,34 @@ func NewDelegationStore(lc fx.Lifecycle, pool *pgxpool.Pool, s3Cfg config.S3Conf
 	return store
 }
 
-func NewSpaceMetricsStore(pool *pgxpool.Pool) *pgmetrics.SpaceStore {
-	return pgmetrics.NewSpaceStore(pool)
+func NewSpaceMetricsStore(mdb *MigratedPool) *pgmetrics.SpaceStore {
+	return pgmetrics.NewSpaceStore(mdb.Pool)
 }
 
-func NewAdminMetricsStore(pool *pgxpool.Pool) *pgmetrics.Store {
-	return pgmetrics.New(pool)
+func NewAdminMetricsStore(mdb *MigratedPool) *pgmetrics.Store {
+	return pgmetrics.New(mdb.Pool)
 }
 
-func NewReplicaStore(pool *pgxpool.Pool) replica.Store {
-	return pgreplica.New(pool)
+func NewReplicaStore(mdb *MigratedPool) replica.Store {
+	return pgreplica.New(mdb.Pool)
 }
 
-func NewRevocationStore(pool *pgxpool.Pool) revocation.Store {
-	return pgrevocation.New(pool)
+func NewRevocationStore(mdb *MigratedPool) revocation.Store {
+	return pgrevocation.New(mdb.Pool)
 }
 
-func NewSpaceDiffStore(pool *pgxpool.Pool) *pgspacediff.Store {
-	return pgspacediff.New(pool)
+func NewSpaceDiffStore(mdb *MigratedPool) *pgspacediff.Store {
+	return pgspacediff.New(mdb.Pool)
 }
 
-func NewStorageProviderStore(pool *pgxpool.Pool) storageprovider.Store {
-	return pgstorageprovider.New(pool)
+func NewStorageProviderStore(mdb *MigratedPool) storageprovider.Store {
+	return pgstorageprovider.New(mdb.Pool)
 }
 
-func NewSubscriptionStore(pool *pgxpool.Pool) subscription.Store {
-	return pgsubscription.New(pool)
+func NewSubscriptionStore(mdb *MigratedPool) subscription.Store {
+	return pgsubscription.New(mdb.Pool)
 }
 
-func NewUploadStore(pool *pgxpool.Pool) upload.Store {
-	return pgupload.New(pool)
+func NewUploadStore(mdb *MigratedPool) upload.Store {
+	return pgupload.New(mdb.Pool)
 }
