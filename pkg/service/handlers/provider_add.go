@@ -34,8 +34,9 @@ const (
 func WithProviderAddMethod(deploymentCfg config.DeploymentConfig, provisioningSvc *provisioning.Service, billingSvc *billing.Service, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		provider.AddAbility,
-		server.Provide(
+		ProvideTraced(
 			provider.Add,
+			provider.AddAbility,
 			ProviderAddHandler(deploymentCfg, provisioningSvc, billingSvc, logger),
 		),
 	)

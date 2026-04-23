@@ -22,8 +22,9 @@ import (
 func WithAdminProviderListMethod(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		provider.ListAbility,
-		server.Provide(
+		ProvideTraced(
 			provider.List,
+			provider.ListAbility,
 			AdminProviderListHandler(id, providerStore, logger),
 		),
 	)

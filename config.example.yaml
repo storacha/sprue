@@ -108,3 +108,30 @@ storage:
 log:
   # Log level: debug, info, warn, error
   level: "info"
+
+# OpenTelemetry export to an OTLP/HTTP collector. Traces and metrics are
+# configured independently; an empty endpoint disables that signal. Resource
+# attributes (service.name, deployment.environment) are derived at startup —
+# service.name is always "sprue" and environment comes from deployment.environment
+# above. The example block below is commented out so the defaults stay
+# disabled.
+#
+# All fields can also be set via env var (e.g. SPRUE_TELEMETRY_TRACES_ENDPOINT)
+# or as hidden flags on `serve` (e.g. --telemetry-traces-endpoint).
+#telemetry:
+#  traces:
+#    endpoint: "otel-collector:4318"      # empty = disabled
+#    insecure: true                       # http:// when scheme ambiguous
+#    headers:                             # sent on every export request
+#      Authorization: "Bearer ..."
+#    timeout: "10s"                       # 0 uses SDK default (10s)
+#    compression: "gzip"                  # "" or "gzip"
+#    sample_ratio: 0                      # probability of tracing an unparented request; 0 = never (parented requests are always honoured)
+#  metrics:
+#    endpoint: "otel-collector:4318"      # empty = disabled
+#    insecure: true
+#    headers:
+#      Authorization: "Bearer ..."
+#    timeout: "10s"
+#    compression: "gzip"
+#    export_interval: "60s"               # 0 uses SDK default (60s)

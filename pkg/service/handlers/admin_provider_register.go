@@ -30,8 +30,9 @@ var (
 func WithAdminProviderRegisterMethod(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		provider.RegisterAbility,
-		server.Provide(
+		ProvideTraced(
 			provider.Register,
+			provider.RegisterAbility,
 			AdminProviderRegisterHandler(id, providerStore, logger),
 		),
 	)

@@ -65,8 +65,9 @@ func extractRetrievalAuth(inv invocation.Invocation) (delegation.Delegation, err
 func WithSpaceIndexAddMethod(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Store, indexerClient *indexerclient.Client, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceindexcap.AddAbility,
-		server.Provide(
+		ProvideTraced(
 			spaceindexcap.Add,
+			spaceindexcap.AddAbility,
 			SpaceIndexAddHandler(provisioningSvc, blobRegistry, indexerClient, logger),
 		),
 	)

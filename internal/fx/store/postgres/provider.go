@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/internal/migrations"
@@ -95,6 +96,12 @@ func NewPostgresPool(cfg config.PostgresConfig, lc fx.Lifecycle, logger *zap.Log
 	if cfg.MinConns > 0 {
 		poolCfg.MinConns = cfg.MinConns
 	}
+	// Attach otelpgx as a pgx QueryTracer so every Exec/Query/Batch becomes a
+	// span parented to the caller's context. Reads from the global
+	// TracerProvider installed by TelemetryModule — no-op until that's wired.
+	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer(
+		otelpgx.WithTrimSQLInSpanName(),
+	)
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 	if err != nil {

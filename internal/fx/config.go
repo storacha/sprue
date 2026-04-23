@@ -22,6 +22,7 @@ type Configs struct {
 	S3         config.S3Config
 	Log        config.LogConfig
 	Mailer     config.MailerConfig
+	Telemetry  config.TelemetryConfig
 }
 
 // ProvideConfigs provides the individual fields of the config. Inner storage
@@ -39,5 +40,6 @@ func ProvideConfigs(cfg *config.Config) Configs {
 		S3:         cfg.Storage.S3,
 		Log:        cfg.Log,
 		Mailer:     cfg.Mailer,
+		Telemetry:  cfg.Telemetry,
 	}
 }

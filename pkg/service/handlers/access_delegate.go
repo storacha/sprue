@@ -32,8 +32,9 @@ const (
 func WithAccessDelegateMethod(delegationStore delegation_store.Store, provisioningSvc *provisioning.Service, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.DelegateAbility,
-		server.Provide(
+		ProvideTraced(
 			access.Delegate,
+			access.DelegateAbility,
 			AccessDelegateHandler(delegationStore, provisioningSvc, logger),
 		),
 	)

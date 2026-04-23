@@ -44,8 +44,9 @@ type ConclusionHandler struct {
 func WithUCANConcludeMethod(id *identity.Identity, agentStore agent.Store, handlers map[ucan.Ability]ConclusionHandlerFunc, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		ucancap.ConcludeAbility,
-		server.Provide(
+		ProvideTraced(
 			ucancap.Conclude,
+			ucancap.ConcludeAbility,
 			UCANConcludeHandler(id, agentStore, handlers, logger),
 		),
 	)

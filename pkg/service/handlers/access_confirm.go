@@ -32,8 +32,9 @@ const InvalidAccessConfirmDelegationErrorName = "InvalidAccessConfirmDelegation"
 func WithAccessConfirmMethod(id *identity.Identity, delegationStore delegation_store.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.ConfirmAbility,
-		server.Provide(
+		ProvideTraced(
 			access.Confirm,
+			access.ConfirmAbility,
 			AccessConfirmHandler(id, delegationStore, logger),
 		),
 	)

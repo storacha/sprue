@@ -21,8 +21,9 @@ import (
 func WithAdminProviderWeightSetMethod(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		provider.WeightSetAbility,
-		server.Provide(
+		ProvideTraced(
 			provider.WeightSet,
+			provider.WeightSetAbility,
 			AdminProviderWeightSetHandler(id, providerStore, logger),
 		),
 	)

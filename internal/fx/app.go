@@ -18,6 +18,7 @@ var AppModule = func(cfg *config.Config) fx.Option {
 		fx.Supply(cfg),
 		ConfigModule,
 		LoggerModule,
+		TelemetryModule,
 		IdentityModule,
 		ServicesModule,
 		ClientsModule,

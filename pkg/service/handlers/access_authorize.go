@@ -45,8 +45,9 @@ var (
 func WithAccessAuthorizeMethod(serverCfg config.ServerConfig, id *identity.Identity, mailer mailer.Mailer, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.AuthorizeAbility,
-		server.Provide(
+		ProvideTraced(
 			access.Authorize,
+			access.AuthorizeAbility,
 			AccessAuthorizeHandler(serverCfg, id, mailer, logger),
 		),
 	)
