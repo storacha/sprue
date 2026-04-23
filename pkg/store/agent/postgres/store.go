@@ -9,8 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -18,7 +16,6 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/storacha/go-libstoracha/jobqueue"
 	"github.com/storacha/go-ucanto/core/car"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/invocation"
@@ -28,21 +25,7 @@ import (
 	"github.com/storacha/sprue/pkg/store/agent"
 )
 
-const (
-	writeConcurrency = 25
-	writeTimeout     = time.Second * 30
-)
-
-type writeJob struct {
-	s3Put     *s3.PutObjectInput
-	indexTask cid.Cid
-	indexKind string
-	indexVal  string
-	callback  func(error)
-}
-
 type Store struct {
-	writeQueue *jobqueue.JobQueue[writeJob]
 	pool       *pgxpool.Pool
 	s3         *s3.Client
 	bucketName string
@@ -51,34 +34,11 @@ type Store struct {
 var _ agent.Store = (*Store)(nil)
 
 func New(pool *pgxpool.Pool, s3Client *s3.Client, bucketName string) *Store {
-	s := &Store{
+	return &Store{
 		pool:       pool,
 		s3:         s3Client,
 		bucketName: bucketName,
 	}
-	handler := jobqueue.JobHandler(func(ctx context.Context, job writeJob) error {
-		var err error
-		if job.s3Put != nil {
-			_, err = s3Client.PutObject(ctx, job.s3Put)
-		}
-		if err == nil && job.indexKind != "" {
-			_, err = pool.Exec(ctx, `
-				INSERT INTO agent_index (task, kind, identifier)
-				VALUES ($1, $2, $3)
-				ON CONFLICT (task, kind) DO UPDATE SET identifier = EXCLUDED.identifier
-			`, job.indexTask.String(), job.indexKind, job.indexVal)
-		}
-		job.callback(err)
-		return nil
-	})
-	q := jobqueue.NewJobQueue[writeJob](
-		handler,
-		jobqueue.WithConcurrency(writeConcurrency),
-		jobqueue.WithJobTimeout(writeTimeout),
-	)
-	q.Startup()
-	s.writeQueue = q
-	return s
 }
 
 func (s *Store) Initialize(ctx context.Context) error {
@@ -91,7 +51,7 @@ func (s *Store) Initialize(ctx context.Context) error {
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
-	return s.writeQueue.Shutdown(ctx)
+	return nil
 }
 
 func (s *Store) GetInvocation(ctx context.Context, task cid.Cid) (invocation.Invocation, error) {
@@ -157,72 +117,68 @@ func (s *Store) getByTask(ctx context.Context, task cid.Cid, kind string) (cid.C
 	return root, bs, nil
 }
 
+// Write uploads the agent message payload to S3 and records every index entry
+// in a single atomic INSERT. The payload is written before the index so that a
+// partial failure leaves (at worst) an orphan S3 object rather than a dangling
+// index pointer to a missing payload. All work runs on the caller's context,
+// so cancellation propagates through both the S3 and Postgres calls.
 func (s *Store) Write(ctx context.Context, msg message.AgentMessage, index []agent.IndexEntry, source []byte) error {
-	var wg sync.WaitGroup
-	var writeErrMutex sync.Mutex
-	var writeErr error
-
 	msgRoot, err := ipldutil.ToCID(msg.Root().Link())
 	if err != nil {
 		return fmt.Errorf("converting message root link to CID: %w", err)
 	}
 
-	callback := func(err error) {
-		if err != nil {
-			writeErrMutex.Lock()
-			writeErr = errors.Join(writeErr, err)
-			writeErrMutex.Unlock()
-		}
-		wg.Done()
-	}
-
-	wg.Add(1)
-	if err := s.writeQueue.Queue(ctx, writeJob{
-		s3Put: &s3.PutObjectInput{
-			Bucket: &s.bucketName,
-			Key:    aws.String(toMessagePath(msgRoot)),
-			Body:   bytes.NewReader(source),
-		},
-		callback: callback,
+	if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: &s.bucketName,
+		Key:    aws.String(toMessagePath(msgRoot)),
+		Body:   bytes.NewReader(source),
 	}); err != nil {
-		return fmt.Errorf("adding message to write queue: %w", err)
+		return fmt.Errorf("writing agent message to S3: %w", err)
 	}
 
+	// agent.Index can yield the same (task, kind) pair more than once (e.g. a
+	// receipt's Ran() re-yields its invocation). Dedup by primary key so the
+	// batched INSERT below doesn't trip "ON CONFLICT DO UPDATE command cannot
+	// affect row a second time". Duplicates within a single message carry the
+	// same identifier by construction, so last-wins is safe.
+	type indexKey struct{ task, kind string }
+	rows := make(map[indexKey]string)
 	for _, entry := range index {
 		if entry.Invocation != nil {
 			invRoot, err := ipldutil.ToCID(entry.Invocation.Invocation.Link())
 			if err != nil {
 				return fmt.Errorf("converting invocation root link to CID: %w", err)
 			}
-			wg.Add(1)
-			if err := s.writeQueue.Queue(ctx, writeJob{
-				indexTask: entry.Invocation.Task,
-				indexKind: "in",
-				indexVal:  fmt.Sprintf("%s@%s", invRoot, msgRoot),
-				callback:  callback,
-			}); err != nil {
-				return fmt.Errorf("adding invocation index to write queue: %w", err)
-			}
+			rows[indexKey{entry.Invocation.Task.String(), "in"}] = fmt.Sprintf("%s@%s", invRoot, msgRoot)
 		}
 		if entry.Receipt != nil {
 			rcptRoot, err := ipldutil.ToCID(entry.Receipt.Receipt.Root().Link())
 			if err != nil {
 				return fmt.Errorf("converting receipt root link to CID: %w", err)
 			}
-			wg.Add(1)
-			if err := s.writeQueue.Queue(ctx, writeJob{
-				indexTask: entry.Receipt.Task,
-				indexKind: "out",
-				indexVal:  fmt.Sprintf("%s@%s", rcptRoot, msgRoot),
-				callback:  callback,
-			}); err != nil {
-				return fmt.Errorf("adding receipt index to write queue: %w", err)
-			}
+			rows[indexKey{entry.Receipt.Task.String(), "out"}] = fmt.Sprintf("%s@%s", rcptRoot, msgRoot)
 		}
 	}
 
-	wg.Wait()
-	return writeErr
+	if len(rows) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, 0, len(rows))
+	args := make([]any, 0, 3*len(rows))
+	i := 0
+	for k, identifier := range rows {
+		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d)", 3*i+1, 3*i+2, 3*i+3))
+		args = append(args, k.task, k.kind, identifier)
+		i++
+	}
+	query := "INSERT INTO agent_index (task, kind, identifier) VALUES " +
+		strings.Join(placeholders, ", ") +
+		" ON CONFLICT (task, kind) DO UPDATE SET identifier = EXCLUDED.identifier"
+	if _, err := s.pool.Exec(ctx, query, args...); err != nil {
+		return fmt.Errorf("writing agent index: %w", err)
+	}
+	return nil
 }
 
 func toMessagePath(msg cid.Cid) string {
