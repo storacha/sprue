@@ -4,173 +4,120 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 
+	assertcap "github.com/alanshaw/libracha/capabilities/assert"
+	contentcap "github.com/alanshaw/libracha/capabilities/content"
+	ucanlib "github.com/alanshaw/libracha/ucan"
+	"github.com/alanshaw/ucantone/client"
+	"github.com/alanshaw/ucantone/did"
+	edm "github.com/alanshaw/ucantone/errors/datamodel"
+	"github.com/alanshaw/ucantone/execution"
+	"github.com/alanshaw/ucantone/ipld"
+	"github.com/alanshaw/ucantone/ipld/datamodel"
+	"github.com/alanshaw/ucantone/result"
+	"github.com/alanshaw/ucantone/ucan"
+	"github.com/alanshaw/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime/datamodel"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	"github.com/ipld/go-ipld-prime/node/basicnode"
 	"github.com/multiformats/go-multiaddr"
-	"go.uber.org/zap"
-
-	assertcap "github.com/storacha/go-libstoracha/capabilities/assert"
-	claimcap "github.com/storacha/go-libstoracha/capabilities/claim"
-	contentcap "github.com/storacha/go-libstoracha/capabilities/space/content"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
-	uclient "github.com/storacha/go-ucanto/client"
 	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/core/invocation"
-	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/go-ucanto/core/result"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
-	ucanhttp "github.com/storacha/go-ucanto/transport/http"
-	"github.com/storacha/go-ucanto/ucan"
+	"go.uber.org/zap"
 )
-
-// retrievalAuthFact implements ucan.FactBuilder for the retrievalAuth fact.
-// This is used to include a retrieval delegation link in the assert/index invocation
-// so the indexer can fetch the index blob from storage providers that require UCAN auth.
-type retrievalAuthFact struct {
-	link ipld.Link
-}
-
-func (f retrievalAuthFact) ToIPLD() (map[string]datamodel.Node, error) {
-	return map[string]datamodel.Node{
-		"retrievalAuth": basicnode.NewLink(f.link),
-	}, nil
-}
 
 // Client is a UCAN client for communicating with the indexer service.
 type Client struct {
 	endpoint   *url.URL
 	indexerDID did.DID
-	signer     principal.Signer
-	connection uclient.Connection
+	signer     ucan.Signer
+	client     *client.HTTPClient
 	logger     *zap.Logger
 }
 
 // New creates a new indexer client.
-func New(endpoint *url.URL, indexerDID did.DID, signer principal.Signer, logger *zap.Logger) (*Client, error) {
-	channel := ucanhttp.NewChannel(endpoint)
-	conn, err := uclient.NewConnection(indexerDID, channel)
+func New(endpoint *url.URL, indexerDID did.DID, signer ucan.Signer, logger *zap.Logger) (*Client, error) {
+	client, err := client.NewHTTP(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("creating connection: %w", err)
+		return nil, fmt.Errorf("creating HTTP client: %w", err)
 	}
 	return &Client{
 		endpoint:   endpoint,
 		indexerDID: indexerDID,
 		signer:     signer,
-		connection: conn,
+		client:     client,
 		logger:     logger,
 	}, nil
 }
 
-// PublishIndexClaim sends an assert/index claim to the indexer.
-// clientAuth is the space/content/retrieve delegation from the client (guppy).
-// If provided, the upload service creates a fresh delegation to the indexer
-// using the same caveats. The client's proof chain is NOT included to avoid
-// leaking did:mailto identities to storage nodes.
-func (c *Client) PublishIndexClaim(ctx context.Context, space did.DID, content, index cid.Cid, clientAuth delegation.Delegation) error {
-	var opts []delegation.Option
-
-	// Re-delegate the client's retrieval auth to the indexer if provided
-	if clientAuth != nil {
-		caps := clientAuth.Capabilities()
-		if len(caps) == 0 {
-			return fmt.Errorf("no capabilities in retrieval auth delegation")
-		}
-
-		// Parse the original caveats from the client's delegation
-		origCaveats, readErr := contentcap.RetrieveCaveatsReader.Read(caps[0].Nb())
-		if readErr != nil {
-			return fmt.Errorf("reading retrieval caveats: %w", readErr)
-		}
-
-		// Create a delegation from upload service to indexer, including the client's
-		// proof chain. This allows the indexer to prove authority to piri.
-		//
-		// Note: This DOES include the client's proof chain (which may contain did:mailto).
-		// In production, a different authorization model should be used to avoid
-		// leaking client identities. For this mock/test setup, the did:mailto is only
-		// visible to piri (the storage node), not publicly exposed.
-		indexerDelegation, delegateErr := contentcap.Retrieve.Delegate(
-			c.signer,       // issuer: upload service (did:key)
-			c.indexerDID,   // audience: indexer (did:web:indexer)
-			space.String(), // with: space DID (resource)
-			origCaveats,    // same caveats (Blob, Range) from client
-			delegation.WithNoExpiration(),
-			delegation.WithProof(delegation.FromDelegation(clientAuth)), // Include client's proof chain
-		)
-		if delegateErr != nil {
-			return fmt.Errorf("creating indexer delegation: %w", delegateErr)
-		}
-
-		// Include the delegation in the assert/index invocation
-		opts = append(opts,
-			delegation.WithFacts([]ucan.FactBuilder{
-				retrievalAuthFact{link: indexerDelegation.Link()},
-			}),
-			delegation.WithProof(delegation.FromDelegation(indexerDelegation)),
-		)
+// PublishIndexClaim sends an /assert/index claim to the indexer.
+//
+// The retrievalAuth parameter is a delegation chain authorizing the upload
+// service to retrieve the index blob via `/content/retrieve` command.
+func (c *Client) PublishIndexClaim(ctx context.Context, space did.DID, content, index cid.Cid, retrievalAuth []ucan.Delegation, matcher ucanlib.DelegationMatcher, options ...invocation.Option) error {
+	// Create a content retrieval delegation from upload service to indexer
+	indexerDelegation, err := contentcap.Retrieve.Delegate(c.signer, c.indexerDID, space)
+	if err != nil {
+		return fmt.Errorf("creating indexer delegation: %w", err)
 	}
+	retrievalAuth = slices.Clone(retrievalAuth)
+	retrievalAuth = append(retrievalAuth, indexerDelegation)
 
-	// assert/* capabilities are self-issued assertions, so the resource (with)
-	// should be the signer's DID, not the indexer's DID
-	inv, err := assertcap.Index.Invoke(
+	// TODO: use assertcap.Index
+	inv, err := invocation.Invoke(
 		c.signer,
-		c.indexerDID,
-		c.signer.DID().String(),
-		assertcap.IndexCaveats{
-			Content: cidlink.Link{Cid: content},
-			Index:   cidlink.Link{Cid: index},
+		c.signer,
+		"/assert/index",
+		datamodel.Map{
+			"content": content,
+			"index":   index,
 		},
-		opts...,
+		invocation.WithAudience(c.indexerDID),
+		invocation.WithMetadata(
+			datamodel.Map{"retrievalAuth": indexerDelegation.Link()},
+		),
 	)
 	if err != nil {
-		return fmt.Errorf("creating assert/index invocation: %w", err)
+		return fmt.Errorf("creating invocation: %w", err)
 	}
 
-	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
+	xreq := execution.NewRequest(
+		ctx,
+		inv,
+		// send the retrieval auth chain as referenced by the index assertion meta
+		execution.WithDelegations(retrievalAuth...),
+	)
+	resp, err := c.client.Execute(xreq)
 	if err != nil {
-		return fmt.Errorf("executing assert/index: %w", err)
+		return fmt.Errorf("executing assert index invocation: %w", err)
 	}
 
-	rcptLink, ok := resp.Get(inv.Link())
-	if !ok {
-		return fmt.Errorf("receipt not found for invocation")
-	}
-
-	// Read receipt and check for errors
-	anyReader := receipt.NewAnyReceiptReader(captypes.Converters...)
-	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
+	rcpt := resp.Receipt()
+	allocOK, err := result.MatchResultR2(
+		rcpt.Out(),
+		func(o ipld.Any) (*assertcap.IndexOK, error) {
+			var allocOK assertcap.IndexOK
+			err := datamodel.Rebind(datamodel.NewAny(o), &allocOK)
+			if err != nil {
+				return nil, fmt.Errorf("binding accept response: %w", err)
+			}
+			return &allocOK, nil
+		},
+		func(x ipld.Any) (*assertcap.IndexOK, error) {
+			var model edm.ErrorModel
+			err := datamodel.Rebind(datamodel.NewAny(x), &model)
+			if err != nil {
+				c.logger.Error("failed to accept blob", zap.Any("error", x))
+				return nil, fmt.Errorf("accepting blob: %v", x)
+			}
+			c.logger.Error("failed to accept blob", zap.String("name", model.ErrorName), zap.Error(model))
+			return nil, fmt.Errorf("accepting blob: %w", model)
+		},
+	)
 	if err != nil {
-		return fmt.Errorf("reading receipt: %w", err)
+		return err
 	}
 
-	_, errNode := result.Unwrap(anyRcpt.Out())
-	if errNode != nil {
-		// Extract error details for better debugging
-		var errDetails string
-		if msgNode, lookupErr := errNode.LookupByString("message"); lookupErr == nil {
-			if msg, asErr := msgNode.AsString(); asErr == nil {
-				errDetails = msg
-			}
-		}
-		if errDetails == "" {
-			if nameNode, lookupErr := errNode.LookupByString("name"); lookupErr == nil {
-				if name, asErr := nameNode.AsString(); asErr == nil {
-					errDetails = name
-				}
-			}
-		}
-		if errDetails == "" {
-			errDetails = "unknown error"
-		}
-		return fmt.Errorf("assert/index failed: %s", errDetails)
-	}
-
-	return nil
+	return allocOK, inv, rcpt, nil
 }
 
 // CacheLocationClaim sends a claim/cache invocation to cache a location claim with the indexer.

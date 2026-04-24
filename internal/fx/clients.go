@@ -3,10 +3,10 @@ package fx
 import (
 	"net/url"
 
-	"github.com/storacha/go-ucanto/did"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"

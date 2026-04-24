@@ -1,30 +1,27 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
 
+	edm "github.com/alanshaw/ucantone/errors/datamodel"
+	"github.com/alanshaw/ucantone/execution"
+	"github.com/alanshaw/ucantone/ipld"
+	"github.com/alanshaw/ucantone/ipld/datamodel"
+	"github.com/alanshaw/ucantone/result"
+	"github.com/alanshaw/ucantone/server"
+	"github.com/alanshaw/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/car"
-	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/go-ucanto/core/result"
-	"github.com/storacha/go-ucanto/server"
-	ucanhttp "github.com/storacha/go-ucanto/transport/http"
-	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/go-ucanto/validator"
-	"go.uber.org/zap"
-
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/lib/didmailto"
@@ -33,6 +30,7 @@ import (
 	"github.com/storacha/sprue/pkg/service/ui"
 	"github.com/storacha/sprue/pkg/store/agent"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
+	"go.uber.org/zap"
 )
 
 // Service implements the sprue upload service logic.
@@ -42,12 +40,12 @@ type Service struct {
 	delegationStore delegation_store.Store
 	indexerClient   *indexerclient.Client
 	logger          *zap.Logger
-	ucanServer      server.ServerView[server.Service]
-	options         []server.Option
+	ucanServer      *server.HTTPServer
+	options         []server.HTTPOption
 }
 
 // New creates a new Service instance.
-func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.Option) (*Service, error) {
+func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.HTTPOption) (*Service, error) {
 	svc := &Service{
 		identity:        id,
 		agentStore:      agentStore,
@@ -58,100 +56,79 @@ func New(id *identity.Identity, agentStore agent.Store, delegationStore delegati
 	}
 
 	// Create UCAN server with handlers
-	ucanSrv, err := svc.createUCANServer()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create UCAN server: %w", err)
-	}
-	svc.ucanServer = ucanSrv
+	svc.ucanServer = svc.createUCANServer()
 
 	return svc, nil
 }
 
 // createUCANServer creates the UCAN RPC server with registered handlers.
-func (s *Service) createUCANServer() (server.ServerView[server.Service], error) {
-	log := s.logger
+func (s *Service) createUCANServer() *server.HTTPServer {
 	options := append(
 		slices.Clone(s.options),
-		server.WithErrorHandler(func(err server.HandlerExecutionError[any]) {
-			if stack := err.Stack(); stack != "" {
-				log = log.With(zap.String("stack", stack))
-			}
-			log.Error("handler execution", zap.Error(err))
-		}),
+		server.WithEventListener(agentMessageLogger{logger: s.logger, agentStore: s.agentStore}),
+		server.WithEventListener(errorHandler{logger: s.logger}),
 	)
-	return server.NewServer(s.identity.Signer, options...)
+	return server.NewHTTP(s.identity.Signer, options...)
+}
+
+type errorHandler struct {
+	logger *zap.Logger
+}
+
+var _ server.ResponseEncodeListener = (*errorHandler)(nil)
+
+func (l errorHandler) OnResponseEncode(ctx context.Context, ct ucan.Container) error {
+	for _, inv := range ct.Invocations() {
+		if r, ok := ct.Receipt(inv.Task().Link()); ok {
+			_, x := result.Unwrap(r.Out())
+			if x != nil {
+				var model edm.ErrorModel
+				datamodel.Rebind(datamodel.NewAny(x), &model)
+				if model.ErrorName == execution.HandlerExecutionErrorName {
+					l.logger.Error(
+						"handler execution error",
+						zap.Stringer("task", inv.Task().Link()),
+						zap.Stringer("command", inv.Command()),
+						zap.Any("args", inv.Arguments()),
+						zap.Error(model),
+					)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+type agentMessageLogger struct {
+	logger     *zap.Logger
+	agentStore agent.Store
+}
+
+var _ server.RequestDecodeListener = (*agentMessageLogger)(nil)
+var _ server.ResponseEncodeListener = (*agentMessageLogger)(nil)
+
+func (r *agentMessageLogger) OnRequestDecode(ctx context.Context, msg ucan.Container) error {
+	err := r.agentStore.Write(ctx, msg, agent.Index(msg))
+	if err != nil {
+		r.logger.Error("failed to write incoming agent message to store", zap.Error(err))
+		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
+	}
+	return nil
+}
+
+func (r *agentMessageLogger) OnResponseEncode(ctx context.Context, msg ucan.Container) error {
+	err := r.agentStore.Write(ctx, msg, agent.Index(msg))
+	if err != nil {
+		r.logger.Error("failed to write outgoing agent message to store", zap.Error(err))
+		return fmt.Errorf("writing outgoing agent message to agent store: %w", err)
+	}
+	return nil
 }
 
 // HandleUCANRequest handles incoming UCAN RPC requests.
 func (s *Service) HandleUCANRequest(c echo.Context) error {
-	r := c.Request()
-
-	inBytes, inMsg, inIdx, err := decodeAndIndex(r.Body)
-	if err != nil {
-		return fmt.Errorf("decoding and indexing incoming agent message: %w", err)
-	}
-	r.Body.Close()
-
-	err = s.agentStore.Write(r.Context(), inMsg, inIdx, inBytes)
-	if err != nil {
-		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
-	}
-
-	res, err := s.ucanServer.Request(r.Context(), ucanhttp.NewRequest(bytes.NewReader(inBytes), r.Header))
-	if err != nil {
-		s.logger.Error("UCAN request error", zap.Error(err))
-		return fmt.Errorf("handling UCAN request: %w", err)
-	}
-
-	outBytes, outMsg, outIdx, err := decodeAndIndex(res.Body())
-	if err != nil {
-		return fmt.Errorf("decoding and indexing outgoing agent message: %w", err)
-	}
-	res.Body().Close()
-
-	err = s.agentStore.Write(r.Context(), outMsg, outIdx, outBytes)
-	if err != nil {
-		return fmt.Errorf("writing outgoing agent message to agent store: %w", err)
-	}
-
-	// Copy response headers
-	for key, vals := range res.Headers() {
-		for _, v := range vals {
-			c.Response().Header().Add(key, v)
-		}
-	}
-
-	return c.Stream(res.Status(), "", bytes.NewReader(outBytes))
-}
-
-func decodeAndIndex(r io.Reader) ([]byte, message.AgentMessage, []agent.IndexEntry, error) {
-	body, err := io.ReadAll(r)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("reading request body: %w", err)
-	}
-	roots, blocks, err := car.Decode(bytes.NewReader(body))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("decoding CAR: %w", err)
-	}
-	if len(roots) != 1 {
-		return nil, nil, nil, fmt.Errorf("expected exactly one root in CAR, got %d", len(roots))
-	}
-	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(blocks))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating block reader: %w", err)
-	}
-	msg, err := message.NewMessage(roots[0], br)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating agent message: %w", err)
-	}
-	var entries []agent.IndexEntry
-	for ent, err := range agent.Index(msg) {
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("indexing agent message: %w", err)
-		}
-		entries = append(entries, ent)
-	}
-	return body, msg, entries, nil
+	s.ucanServer.ServeHTTP(c.Response(), c.Request())
+	return nil
 }
 
 func (s *Service) HandleValidateEmailRequest(c echo.Context) error {

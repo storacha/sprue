@@ -3,10 +3,8 @@ package agent
 import (
 	"context"
 
+	"github.com/alanshaw/ucantone/ucan"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/go-ucanto/core/invocation"
-	"github.com/storacha/go-ucanto/core/message"
-	"github.com/storacha/go-ucanto/core/receipt"
 	"github.com/storacha/sprue/pkg/lib/errors"
 )
 
@@ -24,14 +22,12 @@ var (
 
 type InvocationSource struct {
 	Task       cid.Cid
-	Invocation invocation.Invocation
-	Message    cid.Cid
+	Invocation ucan.Invocation
 }
 
 type ReceiptSource struct {
 	Task    cid.Cid
-	Receipt receipt.AnyReceipt
-	Message cid.Cid
+	Receipt ucan.Receipt
 }
 
 // IndexEntry is either an indexed invocation OR an indexed receipt.
@@ -42,9 +38,9 @@ type IndexEntry struct {
 
 type Store interface {
 	// Write an agent message to the store.
-	Write(ctx context.Context, message message.AgentMessage, index []IndexEntry, source []byte) error
+	Write(ctx context.Context, message ucan.Container, index []IndexEntry) error
 	// GetInvocation retrieves an invocation by its task CID. May return [ErrInvocationNotFound].
-	GetInvocation(ctx context.Context, task cid.Cid) (invocation.Invocation, error)
+	GetInvocation(ctx context.Context, task cid.Cid) (ucan.Invocation, error)
 	// GetReceipt retrieves a receipt by its task CID. May return [ErrReceiptNotFound].
-	GetReceipt(ctx context.Context, task cid.Cid) (receipt.AnyReceipt, error)
+	GetReceipt(ctx context.Context, task cid.Cid) (ucan.Receipt, error)
 }

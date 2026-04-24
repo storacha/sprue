@@ -3,13 +3,14 @@ package testutil
 import (
 	"testing"
 
+	"github.com/alanshaw/libracha/testutil"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/go-libstoracha/testutil"
 )
 
 var (
 	Alice           = testutil.Alice
 	Bob             = testutil.Bob
+	Carol           = testutil.Carol
 	Mallory         = testutil.Mallory
 	Service         = testutil.Service
 	WebService      = testutil.WebService
