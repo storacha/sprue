@@ -7,6 +7,9 @@ import (
 	"slices"
 	"time"
 
+	blobcap "github.com/alanshaw/libracha/capabilities/blob"
+	blobreplicacap "github.com/alanshaw/libracha/capabilities/blob/replica"
+	ucanlib "github.com/alanshaw/libracha/ucan"
 	"github.com/alanshaw/ucantone/client"
 	"github.com/alanshaw/ucantone/did"
 	edm "github.com/alanshaw/ucantone/errors/datamodel"
@@ -18,16 +21,6 @@ import (
 	"github.com/alanshaw/ucantone/ucan/invocation"
 	"github.com/alanshaw/ucantone/ucan/promise"
 	"github.com/ipfs/go-cid"
-
-	blobcap "github.com/alanshaw/libracha/capabilities/blob"
-	ucanlib "github.com/alanshaw/libracha/ucan"
-	blobreplicacap "github.com/storacha/go-libstoracha/capabilities/blob/replica"
-	"github.com/storacha/go-libstoracha/capabilities/types"
-	uclient "github.com/storacha/go-ucanto/client"
-	"github.com/storacha/go-ucanto/core/dag/blockstore"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/core/receipt"
-	fdm "github.com/storacha/go-ucanto/core/result/failure/datamodel"
 	"go.uber.org/zap"
 )
 
@@ -65,7 +58,7 @@ func NewWithClient(piriDID did.DID, signer ucan.Signer, client *client.HTTPClien
 	}
 }
 
-// AllocateRequest contains the parameters for a blob/allocate invocation.
+// AllocateRequest contains the parameters for a /blob/allocate invocation.
 type AllocateRequest struct {
 	Space  did.DID
 	Digest []byte
@@ -155,7 +148,7 @@ func (c *Client) PiriDID() did.DID {
 	return c.piriDID
 }
 
-// AcceptRequest contains the parameters for a blob/accept invocation.
+// AcceptRequest contains the parameters for a /blob/accept invocation.
 type AcceptRequest struct {
 	Space  did.DID
 	Digest []byte
@@ -163,7 +156,7 @@ type AcceptRequest struct {
 	Put    cid.Cid // Link to the /http/put task that uploaded the blob
 }
 
-// Accept sends a blob/accept invocation to the piri node.
+// Accept sends a /blob/accept invocation to the piri node.
 func (c *Client) Accept(ctx context.Context, req *AcceptRequest, matcher ucanlib.DelegationMatcher, options ...invocation.Option) (*blobcap.AcceptOK, ucan.Invocation, ucan.Receipt, error) {
 	inv, prfs, err := c.AcceptInvocation(ctx, req, matcher, options...)
 	if err != nil {
@@ -244,65 +237,42 @@ type ReplicaAllocateRequest struct {
 	Space  did.DID
 	Digest []byte
 	Size   uint64
-	Site   ucan.Delegation // Location commitment
+	Site   ucan.Invocation // Location commitment
 	Cause  cid.Cid
 }
 
-// ReplicaAllocateResponse contains the response from a blob/replica/allocate invocation.
-type ReplicaAllocateResponse struct {
-	// Size is the number of bytes allocated for the Blob.
-	Size uint64
-	// Site resolves to an additional location for the blob.
-	// The selector MUST be ".out.ok.site" i.e. [AllocateSiteSelector] and it
-	// links to a receipt of a "blob/replica/transfer" task.
-	Site types.Promise
-	// Transfer is the invocation referenced in the promise, which is included in
-	// the allocation response.
-	Transfer invocation.Invocation
-}
-
-// ReplicaAllocate sends a blob/replica/allocate invocation to the piri node.
+// ReplicaAllocate sends a /blob/replica/allocate invocation to the piri node.
 // Returns the response data, the invocation that was sent, and the receipt from
 // piri. It returns an error if the receipt contains a failure result.
-func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateRequest, fetcher DelegationFetcher) (*ReplicaAllocateResponse, invocation.Invocation, receipt.AnyReceipt, error) {
-	opts, err := c.fetchDelegationOpts(ctx, fetcher)
+func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateRequest, matcher ucanlib.DelegationMatcher, options ...invocation.Option) (*blobreplicacap.AllocateOK, ucan.Invocation, ucan.Receipt, error) {
+	prfs, prfLinks, err := ucanlib.ProofChain(ctx, matcher, c.piriDID, blobcap.AllocateCommand, req.Space)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("building proof chain: %w", err)
 	}
 
-	// We set a reasonably large expiration as replication nodes use the
-	// invocation as proof for obtaining a retrieval delegation, and we want to
-	// allow for retries and/or job queue delays.
-	exp := time.Now().Add(replicaAllocationTTL).Unix()
-	opts = append(opts, delegation.WithExpiration(int(exp)))
+	options = slices.Clone(options)
+	options = append(
+		options,
+		invocation.WithAudience(c.piriDID),
+		invocation.WithProofs(prfLinks...),
+		// We set a reasonably large expiration as replication nodes use the
+		// invocation as proof for obtaining a retrieval delegation, and we want to
+		// allow for retries and/or job queue delays.
+		invocation.WithExpiration(uint64(time.Now().Add(replicaAllocationTTL).Unix())),
+	)
 
 	inv, err := blobreplicacap.Allocate.Invoke(
 		c.signer,
-		c.piriDID,
-		c.piriDID.String(), // resource is the piri DID
-		blobreplicacap.AllocateCaveats{
-			Space: req.Space,
-			Blob: types.Blob{
-				Digest: req.Digest,
-				Size:   req.Size,
-			},
+		req.Space,
+		&blobreplicacap.AllocateArguments{
+			Blob:  blobreplicacap.Blob{Digest: req.Digest, Size: req.Size},
 			Site:  req.Site.Link(),
 			Cause: req.Cause,
 		},
-		opts...,
+		options...,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("creating replica allocate invocation: %w", err)
-	}
-
-	// attach the location commitment to the allocation invocation
-	for b, err := range req.Site.Blocks() {
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("iterating location commitment blocks: %w", err)
-		}
-		if err := inv.Attach(b); err != nil {
-			return nil, nil, nil, fmt.Errorf("attaching location commitment block: %w", err)
-		}
 	}
 
 	c.logger.Debug("REPLICA ALLOCATE invocation created",
@@ -310,48 +280,42 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 		zap.Stringer("audience", inv.Audience().DID()),
 		zap.Int("proofs", len(inv.Proofs())))
 
-	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
+	xreq := execution.NewRequest(
+		ctx,
+		inv,
+		execution.WithProofs(prfs...),
+		execution.WithInvocations(req.Site),
+	)
+	resp, err := c.client.Execute(xreq)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("executing replica allocate invocation: %w", err)
+		return nil, nil, nil, fmt.Errorf("executing allocate invocation: %w", err)
 	}
 
-	rcptLink, ok := resp.Get(inv.Link())
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
-	}
-
-	reader := receipt.NewAnyReceiptReader(types.Converters...)
-	rcpt, err := reader.Read(rcptLink, resp.Blocks())
+	rcpt := resp.Receipt()
+	allocOK, err := result.MatchResultR2(
+		rcpt.Out(),
+		func(o ipld.Any) (*blobreplicacap.AllocateOK, error) {
+			var allocOK blobreplicacap.AllocateOK
+			err := datamodel.Rebind(datamodel.NewAny(o), &allocOK)
+			if err != nil {
+				return nil, fmt.Errorf("binding accept response: %w", err)
+			}
+			return &allocOK, nil
+		},
+		func(x ipld.Any) (*blobreplicacap.AllocateOK, error) {
+			var model edm.ErrorModel
+			err := datamodel.Rebind(datamodel.NewAny(x), &model)
+			if err != nil {
+				c.logger.Error("failed to accept blob", zap.Any("error", x))
+				return nil, fmt.Errorf("accepting blob: %v", x)
+			}
+			c.logger.Error("failed to accept blob", zap.String("name", model.ErrorName), zap.Error(model))
+			return nil, fmt.Errorf("accepting blob: %w", model)
+		},
+	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
+		return nil, nil, nil, err
 	}
 
-	o, x := result.Unwrap(rcpt.Out())
-	if x != nil {
-		return nil, nil, nil, fmt.Errorf("allocate failed: %s", fdm.Bind(x).Message)
-	}
-
-	allocateOk, err := ipld.Rebind[blobreplicacap.AllocateOk](o, blobreplicacap.AllocateOkType(), types.Converters...)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("rebinding receipt: %w", err)
-	}
-
-	if allocateOk.Site.UcanAwait.Selector != blobreplicacap.AllocateSiteSelector {
-		return nil, nil, nil, fmt.Errorf("unexpected site selector: %s", allocateOk.Site.UcanAwait.Selector)
-	}
-
-	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(rcpt.Blocks()))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating block reader: %w", err)
-	}
-	transfer, err := invocation.NewInvocationView(allocateOk.Site.UcanAwait.Link, br)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating transfer invocation view: %w", err)
-	}
-
-	return &ReplicaAllocateResponse{
-		Size:     allocateOk.Size,
-		Site:     allocateOk.Site,
-		Transfer: transfer,
-	}, inv, rcpt, nil
+	return allocOK, inv, rcpt, nil
 }
