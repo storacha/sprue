@@ -13,17 +13,19 @@ import (
 	dlgstore "github.com/storacha/sprue/pkg/store/delegation"
 	delegationaws "github.com/storacha/sprue/pkg/store/delegation/aws"
 	"github.com/storacha/sprue/pkg/store/delegation/memory"
+	delegationpostgres "github.com/storacha/sprue/pkg/store/delegation/postgres"
 	"github.com/stretchr/testify/require"
 )
 
 type StoreKind string
 
 const (
-	Memory StoreKind = "memory"
-	AWS    StoreKind = "aws"
+	Memory   StoreKind = "memory"
+	AWS      StoreKind = "aws"
+	Postgres StoreKind = "postgres"
 )
 
-var storeKinds = []StoreKind{Memory, AWS}
+var storeKinds = []StoreKind{Memory, AWS, Postgres}
 
 func makeStore(t *testing.T, k StoreKind) dlgstore.Store {
 	switch k {
@@ -31,8 +33,28 @@ func makeStore(t *testing.T, k StoreKind) dlgstore.Store {
 		return memory.New()
 	case AWS:
 		return createAWSStore(t)
+	case Postgres:
+		return createPostgresStore(t)
 	}
 	panic("unknown store kind")
+}
+
+func createPostgresStore(t *testing.T) dlgstore.Store {
+	if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+		if !testutil.IsDockerAvailable(t) {
+			t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+		}
+	}
+	if !testutil.IsDockerAvailable(t) {
+		t.SkipNow()
+	}
+	pool := testutil.CreatePostgres(t)
+	s3Endpoint := testutil.CreateS3(t)
+	s3Client := testutil.NewS3Client(t, s3Endpoint)
+
+	s := delegationpostgres.New(pool, s3Client, "delegation-"+uuid.NewString())
+	require.NoError(t, s.Initialize(t.Context()))
+	return s
 }
 
 func createAWSStore(t *testing.T) dlgstore.Store {

@@ -51,29 +51,85 @@ func TestWireApp(t *testing.T) {
 					Indexer: config.IndexerConfig{
 						Endpoint: "http://localhost:3000",
 					},
-					DynamoDB: config.DynamoDBConfig{
-						Region:               "us-east-1",
-						Endpoint:             dynamoEndpoint.String(),
-						AgentIndexTable:      "agent-index-" + appID,
-						BlobRegistryTable:    "blob-registry-" + appID,
-						ConsumerTable:        "consumer-" + appID,
-						CustomerTable:        "customer-" + appID,
-						DelegationTable:      "delegation-" + appID,
-						SpaceMetricsTable:    "space-metrics-" + appID,
-						AdminMetricsTable:    "admin-metrics-" + appID,
-						ReplicaTable:         "replica-" + appID,
-						RevocationTable:      "revocation-" + appID,
-						StorageProviderTable: "storage-provider-" + appID,
-						SubscriptionTable:    "subscription-" + appID,
-						SpaceDiffTable:       "space-diff-" + appID,
-						UploadTable:          "upload-" + appID,
+					Storage: config.StorageConfig{
+						Type: config.StorageTypeAWS,
+						DynamoDB: config.DynamoDBConfig{
+							Region:               "us-east-1",
+							Endpoint:             dynamoEndpoint.String(),
+							AgentIndexTable:      "agent-index-" + appID,
+							BlobRegistryTable:    "blob-registry-" + appID,
+							ConsumerTable:        "consumer-" + appID,
+							CustomerTable:        "customer-" + appID,
+							DelegationTable:      "delegation-" + appID,
+							SpaceMetricsTable:    "space-metrics-" + appID,
+							AdminMetricsTable:    "admin-metrics-" + appID,
+							ReplicaTable:         "replica-" + appID,
+							RevocationTable:      "revocation-" + appID,
+							StorageProviderTable: "storage-provider-" + appID,
+							SubscriptionTable:    "subscription-" + appID,
+							SpaceDiffTable:       "space-diff-" + appID,
+							UploadTable:          "upload-" + appID,
+						},
+						S3: config.S3Config{
+							Region:             "us-east-1",
+							Endpoint:           s3Endpoint.String(),
+							AgentMessageBucket: "agent-message-" + appID,
+							DelegationBucket:   "delegation-" + appID,
+							UploadShardsBucket: "upload-shards-" + appID,
+						},
 					},
-					S3: config.S3Config{
-						Region:             "us-east-1",
-						Endpoint:           s3Endpoint.String(),
-						AgentMessageBucket: "agent-message-" + appID,
-						DelegationBucket:   "delegation-" + appID,
-						UploadShardsBucket: "upload-shards-" + appID,
+					Mailer: config.MailerConfig{
+						Type: "nop",
+					},
+					Log: config.LogConfig{
+						Level: "debug",
+					},
+				}
+			},
+		},
+		{
+			name: "postgres",
+			configure: func(t *testing.T) config.Config {
+				if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+					if !testutil.IsDockerAvailable(t) {
+						t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+					}
+				}
+				if !testutil.IsDockerAvailable(t) {
+					t.SkipNow()
+				}
+				pool := testutil.CreatePostgres(t)
+				s3Endpoint := testutil.CreateS3(t)
+				appID := uuid.NewString()
+
+				return config.Config{
+					Deployment: config.DeploymentConfig{
+						Environment: "test",
+					},
+					Server: config.ServerConfig{
+						Host: "localhost",
+						Port: 0,
+					},
+					Identity: config.IdentityConfig{
+						PrivateKey: testutil.Must(ed25519.Format(testutil.WebService))(t),
+						ServiceDID: testutil.WebService.DID().String(),
+					},
+					Indexer: config.IndexerConfig{
+						Endpoint: "http://localhost:3000",
+					},
+					Storage: config.StorageConfig{
+						Type: config.StorageTypePostgres,
+						Postgres: config.PostgresConfig{
+							DSN:            pool.Config().ConnString(),
+							SkipMigrations: true, // testutil.CreatePostgres already migrated
+						},
+						S3: config.S3Config{
+							Region:             "us-east-1",
+							Endpoint:           s3Endpoint.String(),
+							AgentMessageBucket: "agent-message-" + appID,
+							DelegationBucket:   "delegation-" + appID,
+							UploadShardsBucket: "upload-shards-" + appID,
+						},
 					},
 					Mailer: config.MailerConfig{
 						Type: "nop",
@@ -89,8 +145,7 @@ func TestWireApp(t *testing.T) {
 			configure: func(t *testing.T) config.Config {
 				return config.Config{
 					Deployment: config.DeploymentConfig{
-						Environment:    "test",
-						InMemoryStores: true,
+						Environment: "test",
 					},
 					Server: config.ServerConfig{
 						Host: "localhost",
@@ -102,6 +157,9 @@ func TestWireApp(t *testing.T) {
 					},
 					Indexer: config.IndexerConfig{
 						Endpoint: "http://localhost:3000",
+					},
+					Storage: config.StorageConfig{
+						Type: config.StorageTypeMemory,
 					},
 					Mailer: config.MailerConfig{
 						Type: "nop",

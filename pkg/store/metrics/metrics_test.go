@@ -9,17 +9,19 @@ import (
 	"github.com/storacha/sprue/pkg/store/metrics"
 	metricsaws "github.com/storacha/sprue/pkg/store/metrics/aws"
 	"github.com/storacha/sprue/pkg/store/metrics/memory"
+	metricspostgres "github.com/storacha/sprue/pkg/store/metrics/postgres"
 	"github.com/stretchr/testify/require"
 )
 
 type StoreKind string
 
 const (
-	Memory StoreKind = "memory"
-	AWS    StoreKind = "aws"
+	Memory   StoreKind = "memory"
+	AWS      StoreKind = "aws"
+	Postgres StoreKind = "postgres"
 )
 
-var storeKinds = []StoreKind{Memory, AWS}
+var storeKinds = []StoreKind{Memory, AWS, Postgres}
 
 func makeStore(t *testing.T, k StoreKind) metrics.Store {
 	switch k {
@@ -27,6 +29,8 @@ func makeStore(t *testing.T, k StoreKind) metrics.Store {
 		return memory.New()
 	case AWS:
 		return createAWSStore(t)
+	case Postgres:
+		return createPostgresStore(t)
 	}
 	panic("unknown store kind")
 }
@@ -37,8 +41,36 @@ func makeSpaceStore(t *testing.T, k StoreKind) metrics.SpaceStore {
 		return memory.NewSpaceStore()
 	case AWS:
 		return createAWSSpaceStore(t)
+	case Postgres:
+		return createPostgresSpaceStore(t)
 	}
 	panic("unknown store kind")
+}
+
+func createPostgresStore(t *testing.T) *metricspostgres.Store {
+	if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+		if !testutil.IsDockerAvailable(t) {
+			t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+		}
+	}
+	if !testutil.IsDockerAvailable(t) {
+		t.SkipNow()
+	}
+	pool := testutil.CreatePostgres(t)
+	return metricspostgres.New(pool)
+}
+
+func createPostgresSpaceStore(t *testing.T) *metricspostgres.SpaceStore {
+	if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+		if !testutil.IsDockerAvailable(t) {
+			t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+		}
+	}
+	if !testutil.IsDockerAvailable(t) {
+		t.SkipNow()
+	}
+	pool := testutil.CreatePostgres(t)
+	return metricspostgres.NewSpaceStore(pool)
 }
 
 func createAWSStore(t *testing.T) *metricsaws.Store {

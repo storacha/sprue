@@ -12,12 +12,15 @@ import (
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 	blobregistryaws "github.com/storacha/sprue/pkg/store/blob_registry/aws"
 	"github.com/storacha/sprue/pkg/store/blob_registry/memory"
+	blobregistrypostgres "github.com/storacha/sprue/pkg/store/blob_registry/postgres"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	consumeraws "github.com/storacha/sprue/pkg/store/consumer/aws"
 	memoryconsumer "github.com/storacha/sprue/pkg/store/consumer/memory"
+	consumerpostgres "github.com/storacha/sprue/pkg/store/consumer/postgres"
 	"github.com/storacha/sprue/pkg/store/metrics"
 	metricsaws "github.com/storacha/sprue/pkg/store/metrics/aws"
 	memorymetrics "github.com/storacha/sprue/pkg/store/metrics/memory"
+	metricspostgres "github.com/storacha/sprue/pkg/store/metrics/postgres"
 	spacediffaws "github.com/storacha/sprue/pkg/store/space_diff/aws"
 	memoryspacediff "github.com/storacha/sprue/pkg/store/space_diff/memory"
 	"github.com/stretchr/testify/require"
@@ -26,11 +29,12 @@ import (
 type StoreKind string
 
 const (
-	Memory StoreKind = "memory"
-	AWS    StoreKind = "aws"
+	Memory   StoreKind = "memory"
+	AWS      StoreKind = "aws"
+	Postgres StoreKind = "postgres"
 )
 
-var storeKinds = []StoreKind{Memory, AWS}
+var storeKinds = []StoreKind{Memory, AWS, Postgres}
 
 // storeBundle groups the blob registry with the dependency stores that tests
 // need to set up state (e.g. adding consumers before registering blobs).
@@ -57,8 +61,32 @@ func makeStores(t *testing.T, k StoreKind) storeBundle {
 		}
 	case AWS:
 		return createAWSStores(t)
+	case Postgres:
+		return createPostgresStores(t)
 	}
 	panic("unknown store kind")
+}
+
+func createPostgresStores(t *testing.T) storeBundle {
+	if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+		if !testutil.IsDockerAvailable(t) {
+			t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+		}
+	}
+	if !testutil.IsDockerAvailable(t) {
+		t.SkipNow()
+	}
+	pool := testutil.CreatePostgres(t)
+	consumerStore := consumerpostgres.New(pool)
+	spaceMetrics := metricspostgres.NewSpaceStore(pool)
+	adminMetrics := metricspostgres.New(pool)
+	registry := blobregistrypostgres.New(pool, consumerStore)
+	return storeBundle{
+		registry:     registry,
+		consumers:    consumerStore,
+		spaceMetrics: spaceMetrics,
+		adminMetrics: adminMetrics,
+	}
 }
 
 func createAWSStores(t *testing.T) storeBundle {

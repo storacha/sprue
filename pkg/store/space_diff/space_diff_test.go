@@ -12,17 +12,19 @@ import (
 	spacediff "github.com/storacha/sprue/pkg/store/space_diff"
 	spacediffaws "github.com/storacha/sprue/pkg/store/space_diff/aws"
 	"github.com/storacha/sprue/pkg/store/space_diff/memory"
+	spacediffpostgres "github.com/storacha/sprue/pkg/store/space_diff/postgres"
 	"github.com/stretchr/testify/require"
 )
 
 type StoreKind string
 
 const (
-	Memory StoreKind = "memory"
-	AWS    StoreKind = "aws"
+	Memory   StoreKind = "memory"
+	AWS      StoreKind = "aws"
+	Postgres StoreKind = "postgres"
 )
 
-var storeKinds = []StoreKind{Memory, AWS}
+var storeKinds = []StoreKind{Memory, AWS, Postgres}
 
 func makeStore(t *testing.T, k StoreKind) spacediff.Store {
 	switch k {
@@ -30,8 +32,23 @@ func makeStore(t *testing.T, k StoreKind) spacediff.Store {
 		return memory.New()
 	case AWS:
 		return createAWSStore(t)
+	case Postgres:
+		return createPostgresStore(t)
 	}
 	panic("unknown store kind")
+}
+
+func createPostgresStore(t *testing.T) *spacediffpostgres.Store {
+	if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+		if !testutil.IsDockerAvailable(t) {
+			t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+		}
+	}
+	if !testutil.IsDockerAvailable(t) {
+		t.SkipNow()
+	}
+	pool := testutil.CreatePostgres(t)
+	return spacediffpostgres.New(pool)
 }
 
 func createAWSStore(t *testing.T) *spacediffaws.Store {

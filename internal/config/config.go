@@ -7,14 +7,20 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Valid values for StorageConfig.Type.
+const (
+	StorageTypeMemory   = "memory"
+	StorageTypePostgres = "postgres"
+	StorageTypeAWS      = "aws"
+)
+
 // Config holds the sprue service configuration.
 type Config struct {
 	Deployment DeploymentConfig `mapstructure:"deployment"`
 	Server     ServerConfig     `mapstructure:"server"`
 	Identity   IdentityConfig   `mapstructure:"identity"`
 	Indexer    IndexerConfig    `mapstructure:"indexer"`
-	DynamoDB   DynamoDBConfig   `mapstructure:"dynamodb"`
-	S3         S3Config         `mapstructure:"s3"`
+	Storage    StorageConfig    `mapstructure:"storage"`
 	Log        LogConfig        `mapstructure:"log"`
 	Mailer     MailerConfig     `mapstructure:"mailer"`
 }
@@ -30,11 +36,6 @@ type DeploymentConfig struct {
 	// given blob. It includes the original blob that was uploaded, so only values
 	// above 1 will allow users to have multiple copies of their data.
 	MaxReplicas uint `mapstructure:"max_replicas"`
-	// InMemoryStores indicates whether to use in-memory stores instead of
-	// DynamoDB/S3. All data will be lost on service restart when this is true, so
-	// it should only be used for development or testing. It overrides all other
-	// store-related config when true.
-	InMemoryStores bool `mapstructure:"in_memory_stores"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -71,6 +72,24 @@ type IndexerConfig struct {
 	DID string `mapstructure:"did"`
 }
 
+// StorageConfig selects and configures the store backend. Type picks which of
+// Memory/Postgres/DynamoDB to use; S3 is shared by the postgres and aws
+// backends for blob payload storage.
+type StorageConfig struct {
+	// Type selects the backend: "memory", "postgres", or "aws". Defaults to
+	// "postgres".
+	Type string `mapstructure:"type"`
+
+	Memory   MemoryConfig   `mapstructure:"memory"`
+	Postgres PostgresConfig `mapstructure:"postgres"`
+	DynamoDB DynamoDBConfig `mapstructure:"dynamodb"`
+	S3       S3Config       `mapstructure:"s3"`
+}
+
+// MemoryConfig configures the in-process store. It currently carries no
+// settings but exists for symmetry with the persistent backends.
+type MemoryConfig struct{}
+
 // DynamoDBConfig holds DynamoDB settings.
 type DynamoDBConfig struct {
 	// Endpoint is the DynamoDB endpoint (for local development).
@@ -92,6 +111,20 @@ type DynamoDBConfig struct {
 	SubscriptionTable    string `mapstructure:"subscription_table"`
 	SpaceDiffTable       string `mapstructure:"space_diff_table"`
 	UploadTable          string `mapstructure:"upload_table"`
+}
+
+// PostgresConfig holds PostgreSQL settings.
+type PostgresConfig struct {
+	// DSN is a libpq-style connection string, e.g.
+	// "postgres://user:pass@host:5432/db?sslmode=disable".
+	DSN string `mapstructure:"dsn"`
+	// MaxConns is the maximum number of connections the pool will hold.
+	MaxConns int32 `mapstructure:"max_conns"`
+	// MinConns is the minimum number of idle connections the pool maintains.
+	MinConns int32 `mapstructure:"min_conns"`
+	// SkipMigrations disables automatic goose migrations on startup. Default
+	// (false) runs migrations.
+	SkipMigrations bool `mapstructure:"skip_migrations"`
 }
 
 // S3Config holds S3 settings.
@@ -140,36 +173,37 @@ func SetDefaults(v *viper.Viper) {
 	// Indexer defaults (port 80 for did:web resolution in Docker)
 	v.SetDefault("indexer.endpoint", "http://indexer:80")
 
-	// DynamoDB defaults
-	v.SetDefault("dynamodb.endpoint", "http://dynamodb-local:8000")
-	v.SetDefault("dynamodb.region", "us-west-1")
-	v.SetDefault("dynamodb.provider_table", "delegator-provider-info")
-	v.SetDefault("dynamodb.allocations_table", "upload-allocations")
-	v.SetDefault("dynamodb.receipts_table", "upload-receipts")
-	v.SetDefault("dynamodb.auth_requests_table", "upload-auth-requests")
-	v.SetDefault("dynamodb.provisionings_table", "upload-provisionings")
-	v.SetDefault("dynamodb.uploads_table", "upload-uploads")
+	// Storage defaults — Postgres is the default backend.
+	v.SetDefault("storage.type", StorageTypePostgres)
 
-	v.SetDefault("dynamodb.agent_index_table", "agent-index")
-	v.SetDefault("dynamodb.blob_registry_table", "blob-registry")
-	v.SetDefault("dynamodb.consumer_table", "consumer")
-	v.SetDefault("dynamodb.customer_table", "customer")
-	v.SetDefault("dynamodb.delegation_table", "delegation")
-	v.SetDefault("dynamodb.space_metrics_table", "space-metrics")
-	v.SetDefault("dynamodb.admin_metrics_table", "admin-metrics")
-	v.SetDefault("dynamodb.replica_table", "replica")
-	v.SetDefault("dynamodb.revocation_table", "revocation")
-	v.SetDefault("dynamodb.storage_provider_table", "storage-provider")
-	v.SetDefault("dynamodb.subscription_table", "subscription")
-	v.SetDefault("dynamodb.space_diff_table", "space-diff")
-	v.SetDefault("dynamodb.upload_table", "upload")
+	// Postgres defaults
+	v.SetDefault("storage.postgres.dsn", "postgres://sprue:sprue@postgres:5432/sprue?sslmode=disable")
+	v.SetDefault("storage.postgres.max_conns", 10)
+	v.SetDefault("storage.postgres.min_conns", 0)
 
-	// S3 defaults
-	v.SetDefault("s3.endpoint", "http://minio:9000")
-	v.SetDefault("s3.region", "us-west-1")
-	v.SetDefault("s3.agent_message_bucket", "agent-message")
-	v.SetDefault("s3.delegation_bucket", "delegation")
-	v.SetDefault("s3.upload_shards_bucket", "upload-shards")
+	// DynamoDB defaults (only consulted when storage.type is "aws")
+	v.SetDefault("storage.dynamodb.endpoint", "http://dynamodb-local:8000")
+	v.SetDefault("storage.dynamodb.region", "us-west-1")
+	v.SetDefault("storage.dynamodb.agent_index_table", "agent-index")
+	v.SetDefault("storage.dynamodb.blob_registry_table", "blob-registry")
+	v.SetDefault("storage.dynamodb.consumer_table", "consumer")
+	v.SetDefault("storage.dynamodb.customer_table", "customer")
+	v.SetDefault("storage.dynamodb.delegation_table", "delegation")
+	v.SetDefault("storage.dynamodb.space_metrics_table", "space-metrics")
+	v.SetDefault("storage.dynamodb.admin_metrics_table", "admin-metrics")
+	v.SetDefault("storage.dynamodb.replica_table", "replica")
+	v.SetDefault("storage.dynamodb.revocation_table", "revocation")
+	v.SetDefault("storage.dynamodb.storage_provider_table", "storage-provider")
+	v.SetDefault("storage.dynamodb.subscription_table", "subscription")
+	v.SetDefault("storage.dynamodb.space_diff_table", "space-diff")
+	v.SetDefault("storage.dynamodb.upload_table", "upload")
+
+	// S3 defaults (used by the postgres and aws backends)
+	v.SetDefault("storage.s3.endpoint", "http://minio:9000")
+	v.SetDefault("storage.s3.region", "us-west-1")
+	v.SetDefault("storage.s3.agent_message_bucket", "agent-message")
+	v.SetDefault("storage.s3.delegation_bucket", "delegation")
+	v.SetDefault("storage.s3.upload_shards_bucket", "upload-shards")
 
 	// Log defaults
 	v.SetDefault("log.level", "info")
@@ -185,32 +219,8 @@ func BindEnvVars(v *viper.Viper) {
 // Load creates a viper instance and loads configuration from the given config file
 // (if provided), environment variables, and defaults.
 func Load(configFile string) (*Config, error) {
-	v := viper.New()
-
-	SetDefaults(v)
-	BindEnvVars(v)
-
-	if configFile != "" {
-		v.SetConfigFile(configFile)
-		if err := v.ReadInConfig(); err != nil {
-			return nil, fmt.Errorf("reading config file: %w", err)
-		}
-	} else {
-		// Look for config in standard locations
-		v.SetConfigName("config")
-		v.SetConfigType("yaml")
-		v.AddConfigPath(".")
-		v.AddConfigPath("/etc/sprue/")
-		// Ignore error if no config file found - use defaults and env vars
-		_ = v.ReadInConfig()
-	}
-
-	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("unmarshaling config: %w", err)
-	}
-
-	return &cfg, nil
+	cfg, _, err := LoadWithViper(configFile)
+	return cfg, err
 }
 
 // LoadWithViper creates a viper instance and loads configuration, returning both
@@ -231,6 +241,7 @@ func LoadWithViper(configFile string) (*Config, *viper.Viper, error) {
 		v.SetConfigType("yaml")
 		v.AddConfigPath(".")
 		v.AddConfigPath("/etc/sprue/")
+		// Ignore error if no config file found - use defaults and env vars
 		_ = v.ReadInConfig()
 	}
 

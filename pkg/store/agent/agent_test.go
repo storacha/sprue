@@ -22,17 +22,19 @@ import (
 	"github.com/storacha/sprue/pkg/store/agent"
 	"github.com/storacha/sprue/pkg/store/agent/aws"
 	"github.com/storacha/sprue/pkg/store/agent/memory"
+	agentpostgres "github.com/storacha/sprue/pkg/store/agent/postgres"
 	"github.com/stretchr/testify/require"
 )
 
 type StoreKind string
 
 const (
-	Memory StoreKind = "memory"
-	AWS    StoreKind = "aws"
+	Memory   StoreKind = "memory"
+	AWS      StoreKind = "aws"
+	Postgres StoreKind = "postgres"
 )
 
-var storeKinds = []StoreKind{Memory, AWS}
+var storeKinds = []StoreKind{Memory, AWS, Postgres}
 
 func makeStore(t *testing.T, k StoreKind) agent.Store {
 	switch k {
@@ -40,8 +42,31 @@ func makeStore(t *testing.T, k StoreKind) agent.Store {
 		return memory.New()
 	case AWS:
 		return createAWSStore(t)
+	case Postgres:
+		return createPostgresStore(t)
 	}
 	panic("unknown store kind")
+}
+
+func createPostgresStore(t *testing.T) agent.Store {
+	if testutil.IsRunningInCI(t) && runtime.GOOS == "linux" {
+		if !testutil.IsDockerAvailable(t) {
+			t.Fatalf("docker is expected in CI linux testing environments, but wasn't found")
+		}
+	}
+	if !testutil.IsDockerAvailable(t) {
+		t.SkipNow()
+	}
+	pool := testutil.CreatePostgres(t)
+	s3Endpoint := testutil.CreateS3(t)
+	s3Client := testutil.NewS3Client(t, s3Endpoint)
+
+	store := agentpostgres.New(pool, s3Client, "agent-message-"+uuid.NewString())
+	require.NoError(t, store.Initialize(t.Context()))
+	t.Cleanup(func() {
+		require.NoError(t, store.Shutdown(context.Background()))
+	})
+	return store
 }
 
 func createAWSStore(t *testing.T) agent.Store {
