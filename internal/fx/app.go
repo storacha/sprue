@@ -24,6 +24,7 @@ var AppModule = func(cfg *config.Config) fx.Option {
 		service.Module,
 		handlers.Module,
 		ServerModule,
+		MS3TModule,
 	}
 	switch cfg.Storage.Type {
 	case config.StorageTypeMemory:

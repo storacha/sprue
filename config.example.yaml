@@ -108,3 +108,43 @@ storage:
 log:
   # Log level: debug, info, warn, error
   level: "info"
+
+# ms3t — embedded S3-compatible HTTP server backed by an MST. When
+# enabled, sprue exposes an S3 listener alongside its UCAN endpoint;
+# objects are stored as content-addressed blocks in a local SQLite
+# blockstore and (optionally) shipped to a Forge stack via guppy.
+ms3t:
+  enabled: false
+  # host:port for the S3 listener. Path-style addressing only; clients
+  # must set forcePathStyle=true and disable streaming uploads
+  # (request_checksum_calculation=when_required for AWS CLI v2.23+).
+  addr: ":9000"
+  # ms3t persists its SQLite database and (when forge is disabled)
+  # CAR files under this directory. Created if missing.
+  data_dir: "./ms3t-data"
+  # Body chunk size in bytes for new objects. Default 1 MiB.
+  chunk_size: 1048576
+  # Uploader: flush a CAR after this many buffered bytes. Default 64 MiB.
+  batch_bytes: 67108864
+  # Uploader: flush a CAR after this idle duration. Default 5s.
+  batch_age: "5s"
+
+  forge:
+    # When true, every batched CAR is shipped to piri through
+    # sprue's routing, piriclient, and indexerclient — no
+    # UCAN-over-HTTP loopback. ms3t reuses sprue's identity as the
+    # signer; no separate principal or delegation file is needed.
+    # When false, CARs are written to data_dir/cars only.
+    enabled: false
+    # Path to ms3t's persisted space keypair. Generated on first
+    # run if missing. ms3t is the root UCAN authority over its own
+    # space, which lets self-issued retrieval delegations validate
+    # against piri's auth on index-blob fetches.
+    # Defaults to <data_dir>/space.key.
+    space_key_file: ""
+    # When true, all block reads (MST nodes, manifests, body
+    # chunks) go through indexer→piri instead of a local SQLite
+    # cache, AND writes go synchronously to Forge (Batched is
+    # bypassed). Closes the read-after-write race; raises per-PUT
+    # latency to the Forge round trip cost. Requires enabled = true.
+    no_cache: false
