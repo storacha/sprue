@@ -21,8 +21,9 @@ import (
 func WithAdminProviderDeregisterMethod(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		provider.DeregisterAbility,
-		server.Provide(
+		ProvideTraced(
 			provider.Deregister,
+			provider.DeregisterAbility,
 			AdminProviderDeregisterHandler(id, providerStore, logger),
 		),
 	)

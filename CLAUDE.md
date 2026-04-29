@@ -76,6 +76,7 @@ Configuration via YAML file or environment variables with `SPRUE_` prefix:
 - `SPRUE_STORAGE_POSTGRES_DSN`, `SPRUE_STORAGE_POSTGRES_MAX_CONNS`, `SPRUE_STORAGE_POSTGRES_SKIP_MIGRATIONS`
 - `SPRUE_STORAGE_DYNAMODB_*` for DynamoDB settings (AWS backend)
 - `SPRUE_STORAGE_S3_*` for S3/MinIO settings
+- `SPRUE_TELEMETRY_TRACES_*` and `SPRUE_TELEMETRY_METRICS_*` — OTLP/HTTP exporter config. Empty endpoint disables that signal. Supports `endpoint`, `insecure`, `headers` (comma-separated `k=v,k=v` via env/flag), `timeout`, `compression` (`"" | "gzip"`), plus `sample_ratio` (traces) or `export_interval` (metrics). The same fields are exposed as hidden `--telemetry-traces-*` / `--telemetry-metrics-*` flags on `serve`.
 
 ### Key Dependencies
 

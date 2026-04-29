@@ -35,8 +35,9 @@ var ErrInvalidClaimAudience = errors.New(InvalidClaimAudienceErrorName, "invalid
 func WithAccessClaimMethod(id *identity.Identity, delegationStore delegation_store.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		access.ClaimAbility,
-		server.Provide(
+		ProvideTraced(
 			access.Claim,
+			access.ClaimAbility,
 			AccessClaimHandler(id, delegationStore, logger),
 		),
 	)

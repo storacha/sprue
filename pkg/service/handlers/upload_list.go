@@ -23,7 +23,7 @@ import (
 func WithUploadListMethod(uploadStore upload_store.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		upload.AddAbility,
-		server.Provide(upload.Add, UploadAddHandler(uploadStore, logger)),
+		ProvideTraced(upload.Add, upload.AddAbility, UploadAddHandler(uploadStore, logger)),
 	)
 }
 

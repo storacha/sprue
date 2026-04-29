@@ -45,8 +45,9 @@ import (
 func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		spaceblobcap.AddAbility,
-		server.Provide(
+		ProvideTraced(
 			spaceblobcap.Add,
+			spaceblobcap.AddAbility,
 			SpaceBlobAddHandler(id, router, nodeProvider, agentStore, blobRegistry, logger),
 		),
 	)

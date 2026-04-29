@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
@@ -31,7 +32,11 @@ func NewEchoServer(
 	e.HideBanner = true
 	e.HidePort = true
 
-	// Middleware
+	// Middleware — otelecho first so every downstream handler and middleware
+	// runs inside the HTTP request span. The middleware reads the global
+	// TracerProvider / TextMapPropagator installed by TelemetryModule, so it
+	// is a no-op until telemetry is configured.
+	e.Use(otelecho.Middleware("sprue"))
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestID())
 	e.Use(middleware.RequestLogger())

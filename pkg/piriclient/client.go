@@ -3,6 +3,7 @@ package piriclient
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -20,6 +21,12 @@ import (
 	"github.com/storacha/go-ucanto/did"
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/ucan"
+	"github.com/uptrace/opentelemetry-go-extra/otelzap"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -42,13 +49,21 @@ type Client struct {
 	piriDID    did.DID
 	signer     ucan.Signer
 	connection uclient.Connection
-	logger     *zap.Logger
+	logger     *otelzap.Logger
 }
 
 // New creates a new Piri client.
 // The delegationFetcher is used to fetch delegation proofs on-demand for each request.
 func New(endpoint *url.URL, piriDID did.DID, signer ucan.Signer, logger *zap.Logger) (*Client, error) {
-	channel := ucanhttp.NewChannel(endpoint)
+	// otelhttp wraps the default transport so every outbound UCAN request
+	// becomes a child span of whatever span is active on the caller's ctx
+	// (typically piriclient.Allocate / .Accept / .ReplicaAllocate). This is
+	// also what propagates the W3C traceparent header downstream so piri
+	// nodes can continue the trace.
+	httpClient := &http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
+	channel := ucanhttp.NewChannel(endpoint, ucanhttp.WithClient(httpClient))
 	conn, err := uclient.NewConnection(piriDID, channel)
 	if err != nil {
 		return nil, fmt.Errorf("creating connection: %w", err)
@@ -61,7 +76,7 @@ func NewWithConnection(piriDID did.DID, signer ucan.Signer, conn uclient.Connect
 		piriDID:    piriDID,
 		signer:     signer,
 		connection: conn,
-		logger:     logger,
+		logger:     otelzap.New(logger),
 	}
 }
 
@@ -108,14 +123,40 @@ func (c *Client) fetchDelegationOpts(ctx context.Context, fetcher DelegationFetc
 // Allocate sends a blob/allocate invocation to the piri node.
 // Returns the response data, the invocation that was sent, and the receipt from piri.
 func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher DelegationFetcher) (*AllocateResponse, invocation.Invocation, receipt.AnyReceipt, error) {
-	// Fetch delegation fresh for each request
-	opts, err := c.fetchDelegationOpts(ctx, fetcher)
-	if err != nil {
-		return nil, nil, nil, err
+	ctx, span := tracer.Start(ctx, "piriclient.Allocate",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("piri.did", c.piriDID.String()),
+			attribute.String("space.did", req.Space.String()),
+			attribute.Int64("blob.size", int64(req.Size)),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
+	outcome := "ok"
+	defer func() {
+		labels := metric.WithAttributes(attribute.String("outcome", outcome))
+		allocateDuration.Record(ctx, time.Since(start).Seconds(), labels)
+		allocateRequests.Add(ctx, 1, labels)
+	}()
+
+	fail := func(err error, reason string) error {
+		outcome = reason
+		span.RecordError(err)
+		span.SetStatus(codes.Error, reason)
+		c.logger.Ctx(ctx).Error("allocate failed",
+			zap.String("reason", reason),
+			zap.Error(err),
+		)
+		return err
 	}
 
-	// Create the invocation
-	// The resource (With) must be the piri node's DID for blob/allocate
+	opts, err := c.fetchDelegationOpts(ctx, fetcher)
+	if err != nil {
+		return nil, nil, nil, fail(err, "fetch_delegation")
+	}
+
 	inv, err := blobcap.Allocate.Invoke(
 		c.signer,
 		c.piriDID,
@@ -131,10 +172,9 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 		opts...,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating allocate invocation: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("creating allocate invocation: %w", err), "invocation_create")
 	}
 
-	// Log invocation details
 	proofLinks := inv.Proofs()
 	blockCount := 0
 	for _, blkErr := range inv.Export() {
@@ -149,52 +189,30 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 		zap.Int("proofLinks", len(proofLinks)),
 		zap.Int("blocks", blockCount))
 
-	// Execute the invocation
 	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("executing allocate invocation: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("executing allocate invocation: %w", err), "execute")
 	}
 
-	// Get the receipt
 	rcptLink, ok := resp.Get(inv.Link())
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
+		return nil, nil, nil, fail(fmt.Errorf("receipt not found for invocation"), "receipt_missing")
 	}
 
-	// Read the receipt using the any reader to avoid type issues
 	anyReader := receipt.NewAnyReceiptReader(types.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("reading receipt: %w", err), "receipt_read")
 	}
 
-	// Check for error response
 	okNode, errNode := result.Unwrap(anyRcpt.Out())
 	if errNode != nil {
-		// Try to extract error details
-		var errDetails string
-		if msgNode, lookupErr := errNode.LookupByString("message"); lookupErr == nil {
-			if msg, asErr := msgNode.AsString(); asErr == nil {
-				errDetails = msg
-			}
-		}
-		if errDetails == "" {
-			if nameNode, lookupErr := errNode.LookupByString("name"); lookupErr == nil {
-				if name, asErr := nameNode.AsString(); asErr == nil {
-					errDetails = name
-				}
-			}
-		}
-		if errDetails == "" {
-			errDetails = "unknown error"
-		}
-		return nil, nil, nil, fmt.Errorf("allocate failed: %s", errDetails)
+		return nil, nil, nil, fail(fmt.Errorf("allocate failed: %s", extractErrorDetails(errNode)), "receipt_error")
 	}
 	if okNode == nil {
-		return nil, nil, nil, fmt.Errorf("allocate returned nil result")
+		return nil, nil, nil, fail(fmt.Errorf("allocate returned nil result"), "receipt_empty")
 	}
 
-	// Rebind to the typed receipt
 	typedRcpt, err := receipt.Rebind[blobcap.AllocateOk, fdm.FailureModel](
 		anyRcpt,
 		blobcap.AllocateOkType(),
@@ -202,15 +220,15 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, fetcher Del
 		types.Converters...,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("rebinding receipt: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("rebinding receipt: %w", err), "receipt_rebind")
 	}
 
-	// Extract the result
 	allocateOk, failErr := result.Unwrap(typedRcpt.Out())
 	if (failErr != fdm.FailureModel{}) {
-		return nil, nil, nil, fmt.Errorf("allocate failed: %s", failErr.Message)
+		return nil, nil, nil, fail(fmt.Errorf("allocate failed: %s", failErr.Message), "result_failure")
 	}
 
+	span.SetAttributes(attribute.Int64("blob.allocated_size", int64(allocateOk.Size)))
 	return &AllocateResponse{
 		Size:    allocateOk.Size,
 		Address: allocateOk.Address,
@@ -260,10 +278,38 @@ type AcceptResponse struct {
 
 // Accept sends a blob/accept invocation to the piri node.
 func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher DelegationFetcher) (*AcceptResponse, invocation.Invocation, receipt.AnyReceipt, error) {
-	// Fetch delegation fresh for each request
+	ctx, span := tracer.Start(ctx, "piriclient.Accept",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("piri.did", c.piriDID.String()),
+			attribute.String("space.did", req.Space.String()),
+			attribute.Int64("blob.size", int64(req.Size)),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
+	outcome := "ok"
+	defer func() {
+		labels := metric.WithAttributes(attribute.String("outcome", outcome))
+		acceptDuration.Record(ctx, time.Since(start).Seconds(), labels)
+		acceptRequests.Add(ctx, 1, labels)
+	}()
+
+	fail := func(err error, reason string) error {
+		outcome = reason
+		span.RecordError(err)
+		span.SetStatus(codes.Error, reason)
+		c.logger.Ctx(ctx).Error("accept failed",
+			zap.String("reason", reason),
+			zap.Error(err),
+		)
+		return err
+	}
+
 	opts, err := c.fetchDelegationOpts(ctx, fetcher)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fail(err, "fetch_delegation")
 	}
 
 	// Use WithNoExpiration so the invocation CID is deterministic and matches
@@ -289,10 +335,9 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher Delegat
 		opts...,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating accept invocation: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("creating accept invocation: %w", err), "invocation_create")
 	}
 
-	// Log invocation details
 	acceptProofLinks := inv.Proofs()
 	acceptBlockCount := 0
 	for _, blkErr := range inv.Export() {
@@ -307,48 +352,28 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, fetcher Delegat
 		zap.Int("proofLinks", len(acceptProofLinks)),
 		zap.Int("blocks", acceptBlockCount))
 
-	// Execute the invocation
 	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("executing accept invocation: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("executing accept invocation: %w", err), "execute")
 	}
 
-	// Get the receipt
 	rcptLink, ok := resp.Get(inv.Link())
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
+		return nil, nil, nil, fail(fmt.Errorf("receipt not found for invocation"), "receipt_missing")
 	}
 
-	// Read the receipt using the any reader
 	anyReader := receipt.NewAnyReceiptReader(types.Converters...)
 	anyRcpt, err := anyReader.Read(rcptLink, resp.Blocks())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("reading receipt: %w", err), "receipt_read")
 	}
 
-	// Check for error response
 	okNode, errNode := result.Unwrap(anyRcpt.Out())
 	if errNode != nil {
-		var errDetails string
-		if msgNode, lookupErr := errNode.LookupByString("message"); lookupErr == nil {
-			if msg, asErr := msgNode.AsString(); asErr == nil {
-				errDetails = msg
-			}
-		}
-		if errDetails == "" {
-			if nameNode, lookupErr := errNode.LookupByString("name"); lookupErr == nil {
-				if name, asErr := nameNode.AsString(); asErr == nil {
-					errDetails = name
-				}
-			}
-		}
-		if errDetails == "" {
-			errDetails = "unknown error"
-		}
-		return nil, nil, nil, fmt.Errorf("accept failed: %s", errDetails)
+		return nil, nil, nil, fail(fmt.Errorf("accept failed: %s", extractErrorDetails(errNode)), "receipt_error")
 	}
 	if okNode == nil {
-		return nil, nil, nil, fmt.Errorf("accept returned nil result")
+		return nil, nil, nil, fail(fmt.Errorf("accept returned nil result"), "receipt_empty")
 	}
 
 	// Extract the site link from the ok node
@@ -419,9 +444,39 @@ type ReplicaAllocateResponse struct {
 // Returns the response data, the invocation that was sent, and the receipt from
 // piri. It returns an error if the receipt contains a failure result.
 func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateRequest, fetcher DelegationFetcher) (*ReplicaAllocateResponse, invocation.Invocation, receipt.AnyReceipt, error) {
+	ctx, span := tracer.Start(ctx, "piriclient.ReplicaAllocate",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("piri.did", c.piriDID.String()),
+			attribute.String("space.did", req.Space.String()),
+			attribute.Int64("blob.size", int64(req.Size)),
+			attribute.String("site.cid", req.Site.Link().String()),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
+	outcome := "ok"
+	defer func() {
+		labels := metric.WithAttributes(attribute.String("outcome", outcome))
+		replicaAllocateDuration.Record(ctx, time.Since(start).Seconds(), labels)
+		replicaAllocateRequests.Add(ctx, 1, labels)
+	}()
+
+	fail := func(err error, reason string) error {
+		outcome = reason
+		span.RecordError(err)
+		span.SetStatus(codes.Error, reason)
+		c.logger.Ctx(ctx).Error("replica allocate failed",
+			zap.String("reason", reason),
+			zap.Error(err),
+		)
+		return err
+	}
+
 	opts, err := c.fetchDelegationOpts(ctx, fetcher)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fail(err, "fetch_delegation")
 	}
 
 	// We set a reasonably large expiration as replication nodes use the
@@ -446,16 +501,16 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 		opts...,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating replica allocate invocation: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("creating replica allocate invocation: %w", err), "invocation_create")
 	}
 
 	// attach the location commitment to the allocation invocation
 	for b, err := range req.Site.Blocks() {
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("iterating location commitment blocks: %w", err)
+			return nil, nil, nil, fail(fmt.Errorf("iterating location commitment blocks: %w", err), "site_iterate")
 		}
 		if err := inv.Attach(b); err != nil {
-			return nil, nil, nil, fmt.Errorf("attaching location commitment block: %w", err)
+			return nil, nil, nil, fail(fmt.Errorf("attaching location commitment block: %w", err), "site_attach")
 		}
 	}
 
@@ -466,43 +521,44 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 
 	resp, err := uclient.Execute(ctx, []invocation.Invocation{inv}, c.connection)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("executing replica allocate invocation: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("executing replica allocate invocation: %w", err), "execute")
 	}
 
 	rcptLink, ok := resp.Get(inv.Link())
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("receipt not found for invocation")
+		return nil, nil, nil, fail(fmt.Errorf("receipt not found for invocation"), "receipt_missing")
 	}
 
 	reader := receipt.NewAnyReceiptReader(types.Converters...)
 	rcpt, err := reader.Read(rcptLink, resp.Blocks())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("reading receipt: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("reading receipt: %w", err), "receipt_read")
 	}
 
 	o, x := result.Unwrap(rcpt.Out())
 	if x != nil {
-		return nil, nil, nil, fmt.Errorf("allocate failed: %s", fdm.Bind(x).Message)
+		return nil, nil, nil, fail(fmt.Errorf("allocate failed: %s", fdm.Bind(x).Message), "receipt_error")
 	}
 
 	allocateOk, err := ipld.Rebind[blobreplicacap.AllocateOk](o, blobreplicacap.AllocateOkType(), types.Converters...)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("rebinding receipt: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("rebinding receipt: %w", err), "receipt_rebind")
 	}
 
 	if allocateOk.Site.UcanAwait.Selector != blobreplicacap.AllocateSiteSelector {
-		return nil, nil, nil, fmt.Errorf("unexpected site selector: %s", allocateOk.Site.UcanAwait.Selector)
+		return nil, nil, nil, fail(fmt.Errorf("unexpected site selector: %s", allocateOk.Site.UcanAwait.Selector), "site_selector")
 	}
 
 	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(rcpt.Blocks()))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating block reader: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("creating block reader: %w", err), "block_reader")
 	}
 	transfer, err := invocation.NewInvocationView(allocateOk.Site.UcanAwait.Link, br)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("creating transfer invocation view: %w", err)
+		return nil, nil, nil, fail(fmt.Errorf("creating transfer invocation view: %w", err), "transfer_view")
 	}
 
+	span.SetAttributes(attribute.Int64("blob.allocated_size", int64(allocateOk.Size)))
 	return &ReplicaAllocateResponse{
 		Size:     allocateOk.Size,
 		Site:     allocateOk.Site,

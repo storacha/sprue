@@ -25,7 +25,7 @@ import (
 func WithUploadShardListMethod(uploadStore upload_store.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		shard.ListAbility,
-		server.Provide(shard.List, UploadShardListHandler(uploadStore, logger)),
+		ProvideTraced(shard.List, shard.ListAbility, UploadShardListHandler(uploadStore, logger)),
 	)
 }
 

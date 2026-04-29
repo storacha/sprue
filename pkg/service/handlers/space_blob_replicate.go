@@ -69,8 +69,9 @@ func WithSpaceBlobReplicateMethod(
 ) server.Option {
 	return server.WithServiceMethod(
 		spaceblobcap.ReplicateAbility,
-		server.Provide(
+		ProvideTraced(
 			spaceblobcap.Replicate,
+			spaceblobcap.ReplicateAbility,
 			SpaceBlobReplicateHandler(cfg, id, router, blobRegistry, replicaStore, agentStore, storageNode, logger),
 		),
 	)

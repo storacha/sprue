@@ -2,8 +2,12 @@ package config
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
+	"time"
 
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
@@ -23,6 +27,7 @@ type Config struct {
 	Storage    StorageConfig    `mapstructure:"storage"`
 	Log        LogConfig        `mapstructure:"log"`
 	Mailer     MailerConfig     `mapstructure:"mailer"`
+	Telemetry  TelemetryConfig  `mapstructure:"telemetry"`
 }
 
 type DeploymentConfig struct {
@@ -164,6 +169,173 @@ type MailerConfig struct {
 	SMTPAuthSecret string `mapstructure:"smtp_auth_secret"`
 }
 
+// TelemetryConfig configures OpenTelemetry trace and metric export to an OTLP
+// collector. Traces and Metrics are configured independently; leaving either
+// Endpoint empty disables that signal. Resource attributes (service.name,
+// deployment.environment) are derived at startup and are not configurable
+// here to avoid splitting the service's identity across sources of truth.
+type TelemetryConfig struct {
+	Traces  TracesConfig  `mapstructure:"traces"`
+	Metrics MetricsConfig `mapstructure:"metrics"`
+}
+
+// TracesConfig holds OTLP/HTTP trace exporter settings.
+type TracesConfig struct {
+	// Endpoint is the OTLP/HTTP collector endpoint (host:port or full URL).
+	// Empty disables trace export.
+	Endpoint string `mapstructure:"endpoint"`
+	// Insecure forces http:// when the Endpoint scheme is ambiguous.
+	Insecure bool `mapstructure:"insecure"`
+	// Headers are sent with each export request (e.g. {"Authorization": "Bearer ..."}).
+	// When set via env var or flag, use comma-separated "k1=v1,k2=v2" form.
+	Headers map[string]string `mapstructure:"headers"`
+	// Timeout bounds each export request. Zero uses the SDK default (10s).
+	Timeout time.Duration `mapstructure:"timeout"`
+	// Compression is "" (no compression) or "gzip".
+	Compression string `mapstructure:"compression"`
+	// SampleRatio is the probability [0,1] that a new root trace — one
+	// where the incoming request has no upstream traceparent — is recorded.
+	// 0 (the default) means unparented requests (e.g. health-check probes)
+	// are never traced. Requests carrying a sampled traceparent are always
+	// honoured regardless of this value.
+	SampleRatio float64 `mapstructure:"sample_ratio"`
+}
+
+// MetricsConfig holds OTLP/HTTP metric exporter settings.
+type MetricsConfig struct {
+	// Endpoint is the OTLP/HTTP collector endpoint (host:port or full URL).
+	// Empty disables metric export.
+	Endpoint string `mapstructure:"endpoint"`
+	// Insecure forces http:// when the Endpoint scheme is ambiguous.
+	Insecure bool `mapstructure:"insecure"`
+	// Headers are sent with each export request.
+	// When set via env var or flag, use comma-separated "k1=v1,k2=v2" form.
+	Headers map[string]string `mapstructure:"headers"`
+	// Timeout bounds each export request. Zero uses the SDK default (10s).
+	Timeout time.Duration `mapstructure:"timeout"`
+	// Compression is "" (no compression) or "gzip".
+	Compression string `mapstructure:"compression"`
+	// ExportInterval is the periodic push interval. Zero uses the SDK default (60s).
+	ExportInterval time.Duration `mapstructure:"export_interval"`
+}
+
+// RegisterTelemetryFlags defines the hidden --telemetry-* flags on cmd.
+// Flags are registered with zero-value defaults so that an unset flag does
+// not shadow an env var or yaml value via viper's BindPFlag path. Actual
+// binding to a viper instance is done later, after cobra has parsed argv.
+func RegisterTelemetryFlags(cmd *cobra.Command) {
+	f := cmd.Flags()
+
+	f.String("telemetry-traces-endpoint", "", "OTLP/HTTP traces endpoint (host:port or URL); empty disables")
+	f.Bool("telemetry-traces-insecure", false, "use http:// for traces when scheme ambiguous")
+	f.String("telemetry-traces-headers", "", "traces exporter headers, comma-separated k=v pairs")
+	f.Duration("telemetry-traces-timeout", 0, "traces export timeout (SDK default when 0)")
+	f.String("telemetry-traces-compression", "", "traces exporter compression: empty or \"gzip\"")
+	f.Float64("telemetry-traces-sample-ratio", 0, "head-based sample ratio [0,1]; 0 uses AlwaysSample")
+
+	f.String("telemetry-metrics-endpoint", "", "OTLP/HTTP metrics endpoint (host:port or URL); empty disables")
+	f.Bool("telemetry-metrics-insecure", false, "use http:// for metrics when scheme ambiguous")
+	f.String("telemetry-metrics-headers", "", "metrics exporter headers, comma-separated k=v pairs")
+	f.Duration("telemetry-metrics-timeout", 0, "metrics export timeout (SDK default when 0)")
+	f.String("telemetry-metrics-compression", "", "metrics exporter compression: empty or \"gzip\"")
+	f.Duration("telemetry-metrics-export-interval", 0, "metrics export interval (SDK default when 0)")
+
+	hidden := []string{
+		"telemetry-traces-endpoint",
+		"telemetry-traces-insecure",
+		"telemetry-traces-headers",
+		"telemetry-traces-timeout",
+		"telemetry-traces-compression",
+		"telemetry-traces-sample-ratio",
+		"telemetry-metrics-endpoint",
+		"telemetry-metrics-insecure",
+		"telemetry-metrics-headers",
+		"telemetry-metrics-timeout",
+		"telemetry-metrics-compression",
+		"telemetry-metrics-export-interval",
+	}
+	for _, name := range hidden {
+		_ = f.MarkHidden(name)
+	}
+}
+
+// BindTelemetryFlags maps the hidden --telemetry-* flags on cmd to their
+// dotted viper keys under "telemetry.*". Call this after cobra has parsed
+// argv so pflag.Changed accurately reflects which flags the user passed.
+func BindTelemetryFlags(v *viper.Viper, cmd *cobra.Command) error {
+	bindings := map[string]string{
+		"telemetry.traces.endpoint":           "telemetry-traces-endpoint",
+		"telemetry.traces.insecure":           "telemetry-traces-insecure",
+		"telemetry.traces.headers":            "telemetry-traces-headers",
+		"telemetry.traces.timeout":            "telemetry-traces-timeout",
+		"telemetry.traces.compression":        "telemetry-traces-compression",
+		"telemetry.traces.sample_ratio":       "telemetry-traces-sample-ratio",
+		"telemetry.metrics.endpoint":          "telemetry-metrics-endpoint",
+		"telemetry.metrics.insecure":          "telemetry-metrics-insecure",
+		"telemetry.metrics.headers":           "telemetry-metrics-headers",
+		"telemetry.metrics.timeout":           "telemetry-metrics-timeout",
+		"telemetry.metrics.compression":       "telemetry-metrics-compression",
+		"telemetry.metrics.export_interval":   "telemetry-metrics-export-interval",
+	}
+	for key, flag := range bindings {
+		f := cmd.Flags().Lookup(flag)
+		if f == nil {
+			continue
+		}
+		if err := v.BindPFlag(key, f); err != nil {
+			return fmt.Errorf("binding flag %q: %w", flag, err)
+		}
+	}
+	return nil
+}
+
+// stringToStringMapHookFunc parses comma-separated "k1=v1,k2=v2" strings into
+// map[string]string when the target field is a string-keyed, string-valued
+// map. It is a no-op for every other from/to combination so it can be safely
+// composed with viper's default hooks.
+func stringToStringMapHookFunc() mapstructure.DecodeHookFuncType {
+	mapStr := reflect.TypeOf(map[string]string{})
+	return func(from, to reflect.Type, data any) (any, error) {
+		if from.Kind() != reflect.String || to != mapStr {
+			return data, nil
+		}
+		raw, _ := data.(string)
+		if raw == "" {
+			return map[string]string{}, nil
+		}
+		out := make(map[string]string)
+		for _, pair := range strings.Split(raw, ",") {
+			pair = strings.TrimSpace(pair)
+			if pair == "" {
+				continue
+			}
+			eq := strings.IndexByte(pair, '=')
+			if eq < 0 {
+				return nil, fmt.Errorf("invalid header pair %q: expected k=v", pair)
+			}
+			k := strings.TrimSpace(pair[:eq])
+			v := strings.TrimSpace(pair[eq+1:])
+			if k == "" {
+				return nil, fmt.Errorf("invalid header pair %q: empty key", pair)
+			}
+			out[k] = v
+		}
+		return out, nil
+	}
+}
+
+// decodeHook returns the decode hook chain used by LoadWithViper. It extends
+// viper's defaults with stringToStringMapHookFunc so that map[string]string
+// fields (e.g. Telemetry.Traces.Headers) can be set from a single "k=v,k=v"
+// string coming from an env var or cobra flag.
+func decodeHook() mapstructure.DecodeHookFunc {
+	return mapstructure.ComposeDecodeHookFunc(
+		mapstructure.StringToTimeDurationHookFunc(),
+		mapstructure.StringToSliceHookFunc(","),
+		stringToStringMapHookFunc(),
+	)
+}
+
 // SetDefaults configures default values for viper.
 func SetDefaults(v *viper.Viper) {
 	// Server defaults
@@ -246,9 +418,20 @@ func LoadWithViper(configFile string) (*Config, *viper.Viper, error) {
 	}
 
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(decodeHook())); err != nil {
 		return nil, nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
 
 	return &cfg, v, nil
+}
+
+// Unmarshal decodes v into a Config using the same decode hook chain as
+// LoadWithViper. Use this when you need to re-unmarshal after binding flags
+// to a viper instance that was produced by LoadWithViper.
+func Unmarshal(v *viper.Viper) (*Config, error) {
+	var cfg Config
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(decodeHook())); err != nil {
+		return nil, fmt.Errorf("unmarshaling config: %w", err)
+	}
+	return &cfg, nil
 }

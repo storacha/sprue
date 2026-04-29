@@ -20,8 +20,9 @@ import (
 func WithFilecoinOfferMethod(logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		filecoincap.OfferAbility,
-		server.Provide(
+		ProvideTraced(
 			filecoincap.Offer,
+			filecoincap.OfferAbility,
 			func(ctx context.Context,
 				cap ucan.Capability[filecoincap.OfferCaveats],
 				inv invocation.Invocation,

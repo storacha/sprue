@@ -23,6 +23,10 @@ import (
 	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/go-ucanto/validator"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/storacha/sprue/pkg/identity"
@@ -34,6 +38,10 @@ import (
 	"github.com/storacha/sprue/pkg/store/agent"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )
+
+const instrumentationName = "github.com/storacha/sprue/pkg/service"
+
+var tracer = otel.Tracer(instrumentationName)
 
 // Service implements the sprue upload service logic.
 type Service struct {
@@ -86,31 +94,51 @@ func (s *Service) createUCANServer() (server.ServerView[server.Service], error) 
 func (s *Service) HandleUCANRequest(c echo.Context) error {
 	r := c.Request()
 
+	ctx, span := tracer.Start(r.Context(), "ucan.dispatch",
+		trace.WithSpanKind(trace.SpanKindServer),
+	)
+	defer span.End()
+
 	inBytes, inMsg, inIdx, err := decodeAndIndex(r.Body)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "decode")
 		return fmt.Errorf("decoding and indexing incoming agent message: %w", err)
 	}
 	r.Body.Close()
 
-	err = s.agentStore.Write(r.Context(), inMsg, inIdx, inBytes)
-	if err != nil {
+	span.SetAttributes(
+		attribute.Int("ucan.invocations", len(inIdx)),
+		attribute.Int("ucan.request_bytes", len(inBytes)),
+	)
+
+	if err := s.agentStore.Write(ctx, inMsg, inIdx, inBytes); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "agent_store_write_in")
 		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
 	}
 
-	res, err := s.ucanServer.Request(r.Context(), ucanhttp.NewRequest(bytes.NewReader(inBytes), r.Header))
+	res, err := s.ucanServer.Request(ctx, ucanhttp.NewRequest(bytes.NewReader(inBytes), r.Header))
 	if err != nil {
 		s.logger.Error("UCAN request error", zap.Error(err))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ucan_request")
 		return fmt.Errorf("handling UCAN request: %w", err)
 	}
 
 	outBytes, outMsg, outIdx, err := decodeAndIndex(res.Body())
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "decode_response")
 		return fmt.Errorf("decoding and indexing outgoing agent message: %w", err)
 	}
 	res.Body().Close()
 
-	err = s.agentStore.Write(r.Context(), outMsg, outIdx, outBytes)
-	if err != nil {
+	span.SetAttributes(attribute.Int("ucan.response_bytes", len(outBytes)))
+
+	if err := s.agentStore.Write(ctx, outMsg, outIdx, outBytes); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "agent_store_write_out")
 		return fmt.Errorf("writing outgoing agent message to agent store: %w", err)
 	}
 

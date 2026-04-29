@@ -23,7 +23,7 @@ import (
 func WithSpaceBlobListMethod(blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
 	return server.WithServiceMethod(
 		blob.ListAbility,
-		server.Provide(blob.List, SpaceBlobListHandler(blobRegistry, logger)),
+		ProvideTraced(blob.List, blob.ListAbility, SpaceBlobListHandler(blobRegistry, logger)),
 	)
 }
 

@@ -20,7 +20,7 @@ func InitClient(cmd *cobra.Command) (*client.Client, *config.Config, *zap.Logger
 	cfg, err := config.Load(configFile)
 	cobra.CheckErr(err)
 
-	logger, err := fx.NewLogger(cfg)
+	logger, err := fx.NewZapLogger(cfg)
 	cobra.CheckErr(err)
 	id, err := fx.NewIdentity(cfg, logger)
 	cobra.CheckErr(err)
