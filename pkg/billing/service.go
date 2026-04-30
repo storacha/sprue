@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/storacha/go-ucanto/did"
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store/customer"
 )
@@ -30,9 +30,9 @@ func (s *Service) PaymentPlan(ctx context.Context, account did.DID) (did.DID, er
 	r, err := s.customerStore.Get(ctx, account)
 	if err != nil {
 		if errors.Is(err, customer.ErrCustomerNotFound) {
-			return did.Undef, ErrMissingPaymentPlan
+			return did.DID{}, ErrMissingPaymentPlan
 		}
-		return did.Undef, fmt.Errorf("getting customer: %w", err)
+		return did.DID{}, fmt.Errorf("getting customer: %w", err)
 	}
 	return r.Product, nil
 }

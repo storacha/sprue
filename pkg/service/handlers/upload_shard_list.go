@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alanshaw/ucantone/did"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/storacha/go-libstoracha/capabilities/upload/shard"
 	"github.com/storacha/go-ucanto/core/invocation"
@@ -11,7 +12,6 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"

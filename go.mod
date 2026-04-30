@@ -3,7 +3,7 @@ module github.com/storacha/sprue
 go 1.25.3
 
 require (
-	github.com/alanshaw/libracha v0.0.0-20260424103945-eb3616b259fe
+	github.com/alanshaw/libracha v0.0.0-20260430083756-e8a1b4ec2900
 	github.com/alanshaw/ucantone v0.0.0-20260423180918-8a2e93851aca
 	github.com/aws/aws-sdk-go-v2 v1.41.3
 	github.com/aws/aws-sdk-go-v2/config v1.32.11
@@ -16,7 +16,7 @@ require (
 	github.com/ipfs/go-cid v0.6.1
 	github.com/ipld/go-ipld-prime v0.21.1-0.20240917223228-6148356a4c2e
 	github.com/labstack/echo/v4 v4.14.0
-	github.com/multiformats/go-multiaddr v0.16.0
+	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/olekukonko/tablewriter v0.0.5

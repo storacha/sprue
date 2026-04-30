@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
@@ -12,7 +13,6 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/principal/absentee"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"

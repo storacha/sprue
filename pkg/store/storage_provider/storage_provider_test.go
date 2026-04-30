@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
@@ -64,22 +62,6 @@ func randomEndpoint(t *testing.T) url.URL {
 	return *u
 }
 
-// makeProof creates a delegation from Alice to a random audience.
-func makeProof(t *testing.T, issuer ucan.Signer) delegation.Delegation {
-	t.Helper()
-	audience := testutil.RandomSigner(t)
-	dlg, err := delegation.Delegate(
-		issuer,
-		audience,
-		[]ucan.Capability[ucan.NoCaveats]{
-			ucan.NewCapability("blob/allocate", testutil.Alice.DID().String(), ucan.NoCaveats{}),
-		},
-		delegation.WithNonce(uuid.NewString()),
-	)
-	require.NoError(t, err)
-	return dlg
-}
-
 func TestStorageProviderStore(t *testing.T) {
 	for _, k := range storeKinds {
 		t.Run(string(k), func(t *testing.T) {
@@ -88,17 +70,15 @@ func TestStorageProviderStore(t *testing.T) {
 			t.Run("puts and gets a provider", func(t *testing.T) {
 				provider := testutil.Alice
 				endpoint := randomEndpoint(t)
-				proof := makeProof(t, provider)
 				weight := 10
 				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), endpoint, proof, weight, &replWeight))
+				require.NoError(t, s.Put(t.Context(), provider.DID(), endpoint, weight, &replWeight))
 
 				rec, err := s.Get(t.Context(), provider.DID())
 				require.NoError(t, err)
 				require.Equal(t, provider.DID(), rec.Provider)
 				require.Equal(t, endpoint, rec.Endpoint)
-				require.Equal(t, proof.Root().Link(), rec.Proof.Root().Link())
 				require.Equal(t, weight, rec.Weight)
 				require.Equal(t, replWeight, *rec.ReplicationWeight)
 				require.False(t, rec.InsertedAt.IsZero())
@@ -108,20 +88,17 @@ func TestStorageProviderStore(t *testing.T) {
 				provider := testutil.Alice
 				endpoint1 := randomEndpoint(t)
 				endpoint2 := randomEndpoint(t)
-				proof1 := makeProof(t, provider)
-				proof2 := makeProof(t, provider)
 				weight1 := 10
 				weight2 := 20
 				replWeight1 := 5
 				replWeight2 := 15
 
-				require.NoError(t, s.Put(t.Context(), endpoint1, proof1, weight1, &replWeight1))
-				require.NoError(t, s.Put(t.Context(), endpoint2, proof2, weight2, &replWeight2))
+				require.NoError(t, s.Put(t.Context(), provider.DID(), endpoint1, weight1, &replWeight1))
+				require.NoError(t, s.Put(t.Context(), provider.DID(), endpoint2, weight2, &replWeight2))
 
 				rec, err := s.Get(t.Context(), provider.DID())
 				require.NoError(t, err)
 				require.Equal(t, endpoint2, rec.Endpoint)
-				require.Equal(t, proof2.Root().Link(), rec.Proof.Root().Link())
 				require.Equal(t, weight2, rec.Weight)
 				require.Equal(t, replWeight2, *rec.ReplicationWeight)
 			})
@@ -136,11 +113,10 @@ func TestStorageProviderStore(t *testing.T) {
 			t.Run("deletes a provider", func(t *testing.T) {
 				provider := testutil.Alice
 				endpoint := randomEndpoint(t)
-				proof := makeProof(t, provider)
 				weight := 10
 				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), endpoint, proof, weight, &replWeight))
+				require.NoError(t, s.Put(t.Context(), provider.DID(), endpoint, weight, &replWeight))
 				require.NoError(t, s.Delete(t.Context(), provider.DID()))
 
 				_, err := s.Get(t.Context(), provider.DID())
@@ -158,13 +134,11 @@ func TestStorageProviderStore(t *testing.T) {
 				provider1 := testutil.Alice
 				provider2 := testutil.Bob
 				endpoint := randomEndpoint(t)
-				proof1 := makeProof(t, provider1)
-				proof2 := makeProof(t, provider2)
 				weight := 10
 				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), endpoint, proof1, weight, &replWeight))
-				require.NoError(t, s.Put(t.Context(), endpoint, proof2, weight, &replWeight))
+				require.NoError(t, s.Put(t.Context(), provider1.DID(), endpoint, weight, &replWeight))
+				require.NoError(t, s.Put(t.Context(), provider2.DID(), endpoint, weight, &replWeight))
 
 				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.Record], error) {
 					var listOpts []storageprovider.ListOption
@@ -187,9 +161,9 @@ func TestStorageProviderStore(t *testing.T) {
 				weight := 10
 				replWeight := 5
 				for range 5 {
+					provider := testutil.RandomDID(t)
 					endpoint := randomEndpoint(t)
-					proof := makeProof(t, testutil.RandomSigner(t))
-					require.NoError(t, s.Put(t.Context(), endpoint, proof, weight, &replWeight))
+					require.NoError(t, s.Put(t.Context(), provider, endpoint, weight, &replWeight))
 				}
 
 				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.Record], error) {
@@ -206,11 +180,10 @@ func TestStorageProviderStore(t *testing.T) {
 			t.Run("deleted provider does not appear in List", func(t *testing.T) {
 				provider := testutil.Alice
 				endpoint := randomEndpoint(t)
-				proof := makeProof(t, provider)
 				weight := 10
 				replWeight := 5
 
-				require.NoError(t, s.Put(t.Context(), endpoint, proof, weight, &replWeight))
+				require.NoError(t, s.Put(t.Context(), provider.DID(), endpoint, weight, &replWeight))
 				require.NoError(t, s.Delete(t.Context(), provider.DID()))
 
 				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[storageprovider.Record], error) {

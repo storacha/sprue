@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/store/metrics"
 )
 

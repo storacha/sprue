@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/lib/errors"
 )
 

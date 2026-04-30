@@ -1,8 +1,8 @@
 package provider
 
 import (
+	"github.com/alanshaw/ucantone/did"
 	"github.com/spf13/cobra"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/cmd/client/lib"
 )
 

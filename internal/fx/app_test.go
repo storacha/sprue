@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/alanshaw/ucantone/principal/signer"
 	"github.com/google/uuid"
-	ed25519 "github.com/storacha/go-ucanto/principal/ed25519/signer"
 	"github.com/storacha/sprue/internal/config"
 	appfx "github.com/storacha/sprue/internal/fx"
 	"github.com/storacha/sprue/internal/testutil"
@@ -45,7 +45,7 @@ func TestWireApp(t *testing.T) {
 						Port: 0,
 					},
 					Identity: config.IdentityConfig{
-						PrivateKey: testutil.Must(ed25519.Format(testutil.WebService))(t),
+						PrivateKey: signer.Format(testutil.WebService),
 						ServiceDID: testutil.WebService.DID().String(),
 					},
 					Indexer: config.IndexerConfig{
@@ -97,7 +97,7 @@ func TestWireApp(t *testing.T) {
 						Port: 0,
 					},
 					Identity: config.IdentityConfig{
-						PrivateKey: testutil.Must(ed25519.Format(testutil.WebService))(t),
+						PrivateKey: signer.Format(testutil.WebService),
 						ServiceDID: testutil.WebService.DID().String(),
 					},
 					Indexer: config.IndexerConfig{

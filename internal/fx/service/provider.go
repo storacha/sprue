@@ -4,7 +4,7 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
-	"github.com/storacha/go-ucanto/server"
+	"github.com/alanshaw/ucantone/server"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/service"
@@ -26,7 +26,7 @@ type ServiceParams struct {
 	DelegationStore delegation.Store
 	IndexerClient   *indexerclient.Client `optional:"true"`
 	Logger          *zap.Logger
-	Options         []server.Option `group:"ucan_options"`
+	Options         []server.HTTPOption `group:"ucan_options"`
 }
 
 // NewService creates the UCAN service with all handlers registered.

@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
@@ -13,7 +14,6 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"

@@ -6,12 +6,12 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/go-libstoracha/capabilities/provider"
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 

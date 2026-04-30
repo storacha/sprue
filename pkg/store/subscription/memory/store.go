@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/alanshaw/ucantone/did"
 	cid "github.com/ipfs/go-cid"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/store"
 	"github.com/storacha/sprue/pkg/store/subscription"
 )

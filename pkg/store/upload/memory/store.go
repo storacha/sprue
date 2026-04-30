@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/store"
 	"github.com/storacha/sprue/pkg/store/upload"
 )

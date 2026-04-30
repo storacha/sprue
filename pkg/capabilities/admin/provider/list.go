@@ -1,41 +1,16 @@
 package provider
 
 import (
-	"github.com/ipld/go-ipld-prime/datamodel"
-	"github.com/storacha/go-ucanto/core/ipld"
-	"github.com/storacha/go-ucanto/core/schema"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/validator"
-
-	"github.com/storacha/go-libstoracha/capabilities/types"
+	"github.com/alanshaw/ucantone/validator/bindcap"
+	pdm "github.com/storacha/sprue/pkg/capabilities/admin/provider/datamodel"
 )
 
-const ListAbility = "admin/provider/list"
+const ListCommand = "/admin/provider/list"
 
-type ListCaveats struct{}
-
-func (lc ListCaveats) ToIPLD() (datamodel.Node, error) {
-	return ipld.WrapWithRecovery(&lc, ListCaveatsType(), types.Converters...)
-}
-
-type Provider struct {
-	ID                did.DID
-	Endpoint          string
-	Weight            int
-	ReplicationWeight int
-}
-
-type ListOk struct {
-	Providers []Provider
-}
-
-func (lo ListOk) ToIPLD() (datamodel.Node, error) {
-	return ipld.WrapWithRecovery(&lo, ListOkType(), types.Converters...)
-}
-
-var List = validator.NewCapability(
-	ListAbility,
-	schema.DIDString(),
-	schema.Struct[ListCaveats](ListCaveatsType(), nil, types.Converters...),
-	validator.DefaultDerives[ListCaveats],
+type (
+	ListArguments = pdm.ListArgumentsModel
+	ListOK        = pdm.ListOKModel
+	Provider      = pdm.ProviderModel
 )
+
+var List, _ = bindcap.New[*ListArguments](ListCommand)

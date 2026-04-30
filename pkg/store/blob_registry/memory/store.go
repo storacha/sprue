@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alanshaw/libracha/capabilities/blob"
+	"github.com/alanshaw/ucantone/did"
 	cid "github.com/ipfs/go-cid"
 	multihash "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/store"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 	"github.com/storacha/sprue/pkg/store/consumer"
@@ -128,7 +128,7 @@ func (s *Store) List(ctx context.Context, space did.DID, options ...blobregistry
 	return store.Page[blobregistry.Record]{Results: results, Cursor: cursor}, nil
 }
 
-func (s *Store) Register(ctx context.Context, space did.DID, blob types.Blob, cause cid.Cid) error {
+func (s *Store) Register(ctx context.Context, space did.DID, blob blob.Blob, cause cid.Cid) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 

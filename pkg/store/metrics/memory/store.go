@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/storacha/go-ucanto/did"
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/sprue/pkg/store/metrics"
 )
 

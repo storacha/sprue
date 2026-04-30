@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/internal/timeutil"
 	"github.com/storacha/sprue/pkg/store/replica"
 )

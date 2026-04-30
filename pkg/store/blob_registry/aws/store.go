@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alanshaw/libracha/capabilities/blob"
+	"github.com/alanshaw/libracha/digestutil"
+	"github.com/alanshaw/ucantone/did"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/ipfs/go-cid"
 	multihash "github.com/multiformats/go-multihash"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/internal/timeutil"
 	"github.com/storacha/sprue/pkg/store"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
@@ -127,7 +127,7 @@ func (s *Store) Get(ctx context.Context, space did.DID, digest multihash.Multiha
 	return itemToRecord(out.Item)
 }
 
-func (s *Store) Register(ctx context.Context, space did.DID, blob captypes.Blob, cause cid.Cid) error {
+func (s *Store) Register(ctx context.Context, space did.DID, blob blob.Blob, cause cid.Cid) error {
 	consumers, err := s.collectConsumers(ctx, space)
 	if err != nil {
 		return fmt.Errorf("collecting consumers: %w", err)
@@ -350,7 +350,7 @@ func itemToRecord(item map[string]types.AttributeValue) (blobregistry.Record, er
 
 	return blobregistry.Record{
 		Space: space,
-		Blob: captypes.Blob{
+		Blob: blob.Blob{
 			Digest: digest,
 			Size:   size,
 		},

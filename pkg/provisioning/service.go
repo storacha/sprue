@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/ipld/codec/dagcbor"
+	"github.com/alanshaw/ucantone/ipld/datamodel"
 	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime/codec/dagcbor"
-	basicnode "github.com/ipld/go-ipld-prime/node/basic"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-ucanto/core/ipld/codec/cbor"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	"github.com/storacha/sprue/pkg/store/subscription"
@@ -109,28 +108,14 @@ func (s *Service) Provision(ctx context.Context, customer AccountDID, consumer S
 }
 
 func NewSubscriptionID(consumer SpaceDID) (string, error) {
-	nb := basicnode.Prototype.Map.NewBuilder()
-	ma, err := nb.BeginMap(1)
-	if err != nil {
-		return "", err
-	}
-	na, err := ma.AssembleEntry("consumer")
-	if err != nil {
-		return "", err
-	}
-	if err := na.AssignString(consumer.String()); err != nil {
-		return "", err
-	}
-	if err := ma.Finish(); err != nil {
-		return "", err
-	}
+	model := datamodel.Map{"consumer": consumer.String()}
 	var buf bytes.Buffer
-	if err := dagcbor.Encode(nb.Build(), &buf); err != nil {
+	if err := model.MarshalCBOR(&buf); err != nil {
 		return "", err
 	}
 	c, err := cid.Prefix{
 		Version:  1,
-		Codec:    cbor.Code,
+		Codec:    dagcbor.Code,
 		MhType:   multihash.SHA2_256,
 		MhLength: -1,
 	}.Sum(buf.Bytes())

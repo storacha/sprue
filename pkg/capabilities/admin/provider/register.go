@@ -1,31 +1,16 @@
 package provider
 
 import (
-	"github.com/ipld/go-ipld-prime/datamodel"
-	"github.com/storacha/go-ucanto/core/ipld"
-	"github.com/storacha/go-ucanto/core/result/ok"
-	"github.com/storacha/go-ucanto/core/schema"
-	"github.com/storacha/go-ucanto/validator"
-
-	"github.com/storacha/go-libstoracha/capabilities/types"
+	cdm "github.com/alanshaw/libracha/capabilities/datamodel"
+	"github.com/alanshaw/ucantone/validator/bindcap"
+	pdm "github.com/storacha/sprue/pkg/capabilities/admin/provider/datamodel"
 )
 
-const RegisterAbility = "admin/provider/register"
+const RegisterCommand = "/admin/provider/register"
 
-type RegisterCaveats struct {
-	Endpoint string
-	Proof    ipld.Link
-}
-
-func (rc RegisterCaveats) ToIPLD() (datamodel.Node, error) {
-	return ipld.WrapWithRecovery(&rc, RegisterCaveatsType(), types.Converters...)
-}
-
-type RegisterOk = ok.Unit
-
-var Register = validator.NewCapability(
-	RegisterAbility,
-	schema.DIDString(),
-	schema.Struct[RegisterCaveats](RegisterCaveatsType(), nil, types.Converters...),
-	validator.DefaultDerives[RegisterCaveats],
+type (
+	RegisterArguments = pdm.RegisterArgumentsModel
+	RegisterOK        = cdm.UnitModel
 )
+
+var Register, _ = bindcap.New[*RegisterArguments](RegisterCommand)

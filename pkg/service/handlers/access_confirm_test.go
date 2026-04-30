@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/result"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/identity"

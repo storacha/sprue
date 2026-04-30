@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/multiformats/go-multihash"
 	"github.com/storacha/go-libstoracha/capabilities/assert"
 	blobreplicacap "github.com/storacha/go-libstoracha/capabilities/blob/replica"
@@ -23,7 +24,6 @@ import (
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
 	fdm "github.com/storacha/go-ucanto/core/result/failure/datamodel"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/go-ucanto/validator"

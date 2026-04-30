@@ -5,8 +5,8 @@ import (
 	"maps"
 	"sync"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/store/revocation"
 )
 

@@ -2,22 +2,19 @@ package agent_test
 
 import (
 	"context"
-	"io"
 	"runtime"
 	"testing"
 
+	caps "github.com/alanshaw/libracha/capabilities"
+	ucancap "github.com/alanshaw/libracha/capabilities/ucan"
+	"github.com/alanshaw/ucantone/ipld"
+	"github.com/alanshaw/ucantone/ipld/datamodel"
+	"github.com/alanshaw/ucantone/result"
+	"github.com/alanshaw/ucantone/ucan"
+	"github.com/alanshaw/ucantone/ucan/container"
+	"github.com/alanshaw/ucantone/ucan/invocation"
+	"github.com/alanshaw/ucantone/ucan/receipt"
 	"github.com/google/uuid"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
-	"github.com/storacha/go-ucanto/core/car"
-	"github.com/storacha/go-ucanto/core/invocation"
-	"github.com/storacha/go-ucanto/core/ipld"
-	"github.com/storacha/go-ucanto/core/message"
-	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/go-ucanto/core/receipt/ran"
-	"github.com/storacha/go-ucanto/core/result"
-	"github.com/storacha/go-ucanto/core/result/ok"
-	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store/agent"
 	"github.com/storacha/sprue/pkg/store/agent/aws"
@@ -75,45 +72,38 @@ func createAWSStore(t *testing.T) agent.Store {
 	return store
 }
 
-func makeInvocation(t *testing.T) invocation.Invocation {
+func makeInvocation(t *testing.T) ucan.Invocation {
 	t.Helper()
 	inv, err := invocation.Invoke(
 		testutil.Alice,
-		testutil.Bob,
-		ucan.NewCapability("test/invoke", testutil.Alice.DID().String(), ucan.NoCaveats{}),
+		testutil.Alice,
+		"test/invoke",
+		datamodel.Map{},
+		invocation.WithAudience(testutil.Bob),
 	)
 	require.NoError(t, err)
 	return inv
 }
 
-func makeReceipt(t *testing.T, inv invocation.Invocation) receipt.AnyReceipt {
+func makeReceipt(t *testing.T, inv ucan.Invocation) ucan.Receipt {
 	t.Helper()
 	rcpt, err := receipt.Issue(
 		testutil.Alice,
-		result.Ok[ok.Unit, ipld.Builder](ok.Unit{}),
-		ran.FromInvocation(inv),
+		inv.Task().Link(),
+		result.OK[caps.Unit, ipld.Any](caps.Unit{}),
 	)
 	require.NoError(t, err)
 	return rcpt
 }
 
-func buildAndWrite(t *testing.T, store agent.Store, invocations []invocation.Invocation, receipts []receipt.AnyReceipt) {
+func buildAndWrite(t *testing.T, store agent.Store, invocations []ucan.Invocation, receipts []ucan.Receipt) {
 	t.Helper()
-	msg, err := message.Build(invocations, receipts)
-	require.NoError(t, err)
-
-	carReader := car.Encode([]ipld.Link{msg.Root().Link()}, msg.Blocks())
-
-	source, err := io.ReadAll(carReader)
-	require.NoError(t, err)
-
-	var index []agent.IndexEntry
-	for entry, err := range agent.Index(msg) {
-		require.NoError(t, err)
-		index = append(index, entry)
-	}
-
-	err = store.Write(t.Context(), msg, index, source)
+	msg := container.New(
+		container.WithInvocations(invocations...),
+		container.WithReceipts(receipts...),
+	)
+	index := agent.Index(msg)
+	err := store.Write(t.Context(), msg, index)
 	require.NoError(t, err)
 }
 
@@ -124,9 +114,9 @@ func TestAgentStore(t *testing.T) {
 
 			t.Run("gets an invocation", func(t *testing.T) {
 				inv := makeInvocation(t)
-				buildAndWrite(t, store, []invocation.Invocation{inv}, nil)
+				buildAndWrite(t, store, []ucan.Invocation{inv}, nil)
 
-				got, err := store.GetInvocation(t.Context(), inv.Link().(cidlink.Link).Cid)
+				got, err := store.GetInvocation(t.Context(), inv.Task().Link())
 				require.NoError(t, err)
 				require.Equal(t, inv.Link().String(), got.Link().String())
 			})
@@ -139,11 +129,11 @@ func TestAgentStore(t *testing.T) {
 			t.Run("gets a receipt", func(t *testing.T) {
 				inv := makeInvocation(t)
 				rcpt := makeReceipt(t, inv)
-				buildAndWrite(t, store, nil, []receipt.AnyReceipt{rcpt})
+				buildAndWrite(t, store, nil, []ucan.Receipt{rcpt})
 
-				got, err := store.GetReceipt(t.Context(), inv.Link().(cidlink.Link).Cid)
+				got, err := store.GetReceipt(t.Context(), inv.Task().Link())
 				require.NoError(t, err)
-				require.Equal(t, rcpt.Root().Link().String(), got.Root().Link().String())
+				require.Equal(t, rcpt.Link().String(), got.Link().String())
 			})
 
 			t.Run("returns not found for missing receipt", func(t *testing.T) {
@@ -158,38 +148,30 @@ func TestAgentStore(t *testing.T) {
 
 				// Create a ucan/conclude invocation that carries the receipt as its
 				// nb.receipt caveat. This is how agents communicate receipts in-band.
-				concludeInv, err := invocation.Invoke(
+
+				concludeInv, err := ucancap.Conclude.Invoke(
 					testutil.Alice,
-					testutil.Bob,
-					ucan.NewCapability(
-						ucancap.ConcludeAbility,
-						testutil.Alice.DID().String(),
-						ucancap.ConcludeCaveats{Receipt: rcpt.Root().Link()},
-					),
+					testutil.Alice,
+					&ucancap.ConcludeArguments{
+						Receipt: rcpt.Link(),
+					},
+					invocation.WithAudience(testutil.Bob),
 				)
 				require.NoError(t, err)
 
-				// The indexer resolves the receipt link against the message blockstore,
-				// so the receipt blocks must travel with the conclude invocation. Attach
-				// them directly so they are included when the message is built.
-				for blk, err := range rcpt.Blocks() {
-					require.NoError(t, err)
-					require.NoError(t, concludeInv.Attach(blk))
-				}
-
 				// The receipt is now retrievable by the original task invocation CID.
-				buildAndWrite(t, store, []invocation.Invocation{concludeInv}, nil)
-				got, err := store.GetReceipt(t.Context(), taskInv.Link().(cidlink.Link).Cid)
+				buildAndWrite(t, store, []ucan.Invocation{concludeInv}, []ucan.Receipt{rcpt})
+				got, err := store.GetReceipt(t.Context(), taskInv.Task().Link())
 				require.NoError(t, err)
-				require.Equal(t, rcpt.Root().Link().String(), got.Root().Link().String())
+				require.Equal(t, rcpt.Link().String(), got.Link().String())
 			})
 
 			t.Run("writes invocation and receipt in the same message", func(t *testing.T) {
 				inv := makeInvocation(t)
 				rcpt := makeReceipt(t, inv)
-				buildAndWrite(t, store, []invocation.Invocation{inv}, []receipt.AnyReceipt{rcpt})
+				buildAndWrite(t, store, []ucan.Invocation{inv}, []ucan.Receipt{rcpt})
 
-				task := inv.Link().(cidlink.Link).Cid
+				task := inv.Task().Link()
 
 				gotInv, err := store.GetInvocation(t.Context(), task)
 				require.NoError(t, err)
@@ -197,7 +179,7 @@ func TestAgentStore(t *testing.T) {
 
 				gotRcpt, err := store.GetReceipt(t.Context(), task)
 				require.NoError(t, err)
-				require.Equal(t, rcpt.Root().Link().String(), gotRcpt.Root().Link().String())
+				require.Equal(t, rcpt.Link().String(), gotRcpt.Link().String())
 			})
 		})
 	}

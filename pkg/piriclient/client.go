@@ -12,15 +12,12 @@ import (
 	ucanlib "github.com/alanshaw/libracha/ucan"
 	"github.com/alanshaw/ucantone/client"
 	"github.com/alanshaw/ucantone/did"
-	edm "github.com/alanshaw/ucantone/errors/datamodel"
 	"github.com/alanshaw/ucantone/execution"
-	"github.com/alanshaw/ucantone/ipld"
-	"github.com/alanshaw/ucantone/ipld/datamodel"
-	"github.com/alanshaw/ucantone/result"
 	"github.com/alanshaw/ucantone/ucan"
 	"github.com/alanshaw/ucantone/ucan/invocation"
 	"github.com/alanshaw/ucantone/ucan/promise"
 	"github.com/ipfs/go-cid"
+	"github.com/storacha/sprue/pkg/lib/ucanclient"
 	"go.uber.org/zap"
 )
 
@@ -79,37 +76,10 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, matcher uca
 		zap.Stringer("audience", inv.Audience().DID()),
 		zap.Int("proofs", len(prfs)))
 
-	resp, err := c.client.Execute(execution.NewRequest(ctx, inv, execution.WithProofs(prfs...)))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("executing allocate invocation: %w", err)
-	}
-
-	rcpt := resp.Receipt()
-	allocOK, err := result.MatchResultR2(
-		rcpt.Out(),
-		func(o ipld.Any) (*blobcap.AllocateOK, error) {
-			var allocOK blobcap.AllocateOK
-			err := datamodel.Rebind(datamodel.NewAny(o), &allocOK)
-			if err != nil {
-				return nil, fmt.Errorf("binding allocate response: %w", err)
-			}
-			return &allocOK, nil
-		},
-		func(x ipld.Any) (*blobcap.AllocateOK, error) {
-			var model edm.ErrorModel
-			err := datamodel.Rebind(datamodel.NewAny(x), &model)
-			if err != nil {
-				c.logger.Error("failed to allocate blob", zap.Any("error", x))
-				return nil, fmt.Errorf("allocating blob: %v", x)
-			}
-			c.logger.Error("failed to allocate blob", zap.String("name", model.ErrorName), zap.Error(model))
-			return nil, fmt.Errorf("allocating blob: %w", model)
-		},
-	)
+	allocOK, rcpt, err := ucanclient.Execute[*blobcap.AllocateOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...))
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
 	return allocOK, inv, rcpt, nil
 }
 
@@ -168,37 +138,10 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, matcher ucanlib
 		zap.Stringer("audience", inv.Audience().DID()),
 		zap.Int("proofs", len(prfs)))
 
-	resp, err := c.client.Execute(execution.NewRequest(ctx, inv, execution.WithProofs(prfs...)))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("executing allocate invocation: %w", err)
-	}
-
-	rcpt := resp.Receipt()
-	acceptOK, err := result.MatchResultR2(
-		rcpt.Out(),
-		func(o ipld.Any) (*blobcap.AcceptOK, error) {
-			var acceptOK blobcap.AcceptOK
-			err := datamodel.Rebind(datamodel.NewAny(o), &acceptOK)
-			if err != nil {
-				return nil, fmt.Errorf("binding accept response: %w", err)
-			}
-			return &acceptOK, nil
-		},
-		func(x ipld.Any) (*blobcap.AcceptOK, error) {
-			var model edm.ErrorModel
-			err := datamodel.Rebind(datamodel.NewAny(x), &model)
-			if err != nil {
-				c.logger.Error("failed to accept blob", zap.Any("error", x))
-				return nil, fmt.Errorf("accepting blob: %v", x)
-			}
-			c.logger.Error("failed to accept blob", zap.String("name", model.ErrorName), zap.Error(model))
-			return nil, fmt.Errorf("accepting blob: %w", model)
-		},
-	)
+	acceptOK, rcpt, err := ucanclient.Execute[*blobcap.AcceptOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...))
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
 	return acceptOK, inv, rcpt, nil
 }
 
@@ -280,42 +223,9 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 		zap.Stringer("audience", inv.Audience().DID()),
 		zap.Int("proofs", len(inv.Proofs())))
 
-	xreq := execution.NewRequest(
-		ctx,
-		inv,
-		execution.WithProofs(prfs...),
-		execution.WithInvocations(req.Site),
-	)
-	resp, err := c.client.Execute(xreq)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("executing allocate invocation: %w", err)
-	}
-
-	rcpt := resp.Receipt()
-	allocOK, err := result.MatchResultR2(
-		rcpt.Out(),
-		func(o ipld.Any) (*blobreplicacap.AllocateOK, error) {
-			var allocOK blobreplicacap.AllocateOK
-			err := datamodel.Rebind(datamodel.NewAny(o), &allocOK)
-			if err != nil {
-				return nil, fmt.Errorf("binding accept response: %w", err)
-			}
-			return &allocOK, nil
-		},
-		func(x ipld.Any) (*blobreplicacap.AllocateOK, error) {
-			var model edm.ErrorModel
-			err := datamodel.Rebind(datamodel.NewAny(x), &model)
-			if err != nil {
-				c.logger.Error("failed to accept blob", zap.Any("error", x))
-				return nil, fmt.Errorf("accepting blob: %v", x)
-			}
-			c.logger.Error("failed to accept blob", zap.String("name", model.ErrorName), zap.Error(model))
-			return nil, fmt.Errorf("accepting blob: %w", model)
-		},
-	)
+	allocOK, rcpt, err := ucanclient.Execute[*blobreplicacap.AllocateOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...), execution.WithInvocations(req.Site))
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
 	return allocOK, inv, rcpt, nil
 }

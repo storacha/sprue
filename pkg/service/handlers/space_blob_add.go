@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/alanshaw/ucantone/did"
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/fluent/qp"
 	basicnode "github.com/ipld/go-ipld-prime/node/basic"
@@ -26,7 +27,6 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/ran"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/principal"
 	ed25519signer "github.com/storacha/go-ucanto/principal/ed25519/signer"
 	"github.com/storacha/go-ucanto/server"

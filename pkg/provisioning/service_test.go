@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/storacha/go-ucanto/did"
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/lib/didmailto"
 	"github.com/storacha/sprue/pkg/provisioning"

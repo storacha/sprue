@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/alanshaw/libracha/capabilities/blob"
 	"github.com/google/uuid"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
@@ -102,9 +102,9 @@ func createAWSStores(t *testing.T) storeBundle {
 }
 
 // randomBlob returns a blob with a random digest and the given size.
-func randomBlob(t *testing.T, size uint64) captypes.Blob {
+func randomBlob(t *testing.T, size uint64) blob.Blob {
 	t.Helper()
-	return captypes.Blob{Digest: testutil.RandomMultihash(t), Size: size}
+	return blob.Blob{Digest: testutil.RandomMultihash(t), Size: size}
 }
 
 func TestBlobRegistryStore(t *testing.T) {

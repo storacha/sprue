@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/alanshaw/ucantone/did"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
 	spaceblobcap "github.com/storacha/go-libstoracha/capabilities/space/blob"
@@ -17,7 +18,6 @@ import (
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/principal/signer"
 	"github.com/storacha/go-ucanto/server"

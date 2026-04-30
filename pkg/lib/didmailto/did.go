@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/storacha/go-ucanto/did"
+	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/sprue/pkg/lib/errors"
 )
 
@@ -18,13 +18,13 @@ var ErrInvalidMailtoDID = errors.New(InvalidMailtoDIDErrorName, "invalid mailto 
 func New(email string) (did.DID, error) {
 	a, err := mail.ParseAddress(email)
 	if err != nil {
-		return did.Undef, fmt.Errorf("parsing email: %w", err)
+		return did.DID{}, fmt.Errorf("parsing email: %w", err)
 	}
 	at := strings.LastIndex(a.Address, "@")
 	var local, domain string
 	if at < 0 {
 		// This is a malformed address ("@" is required in addr-spec);
-		return did.Undef, fmt.Errorf("malformed email address: %s", email)
+		return did.DID{}, fmt.Errorf("malformed email address: %s", email)
 	}
 	local, domain = a.Address[:at], a.Address[at+1:]
 	return did.Parse(fmt.Sprintf("did:mailto:%s:%s", url.QueryEscape(domain), url.QueryEscape(local)))
@@ -50,10 +50,10 @@ func Email(d did.DID) (string, error) {
 func Parse(str string) (did.DID, error) {
 	d, err := did.Parse(str)
 	if err != nil {
-		return did.Undef, err
+		return did.DID{}, err
 	}
 	if !strings.HasPrefix(d.String(), "did:mailto:") {
-		return did.Undef, ErrInvalidMailtoDID
+		return did.DID{}, ErrInvalidMailtoDID
 	}
 	return d, nil
 }

@@ -4,16 +4,16 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"time"
 
+	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/ucan"
+	"github.com/alanshaw/ucantone/ucan/delegation"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/sprue/pkg/internal/timeutil"
 	"github.com/storacha/sprue/pkg/store"
 	dlgstore "github.com/storacha/sprue/pkg/store/delegation"
@@ -103,15 +103,14 @@ func (s *Store) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) PutMany(ctx context.Context, delegations []delegation.Delegation, cause cid.Cid) error {
+func (s *Store) PutMany(ctx context.Context, delegations []ucan.Delegation, cause cid.Cid) error {
 	now := time.Now().UTC().Format(timeutil.SimplifiedISO8601)
 	for _, dlg := range delegations {
-		link := dlg.Root().Link().String()
+		link := dlg.Link().String()
 
-		// Archive the delegation to a CAR and store in S3.
-		body, err := io.ReadAll(dlg.Archive())
+		body, err := delegation.Encode(dlg)
 		if err != nil {
-			return fmt.Errorf("archiving delegation %s: %w", link, err)
+			return fmt.Errorf("encoding delegation %s: %w", link, err)
 		}
 		if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: &s.bucketName,
@@ -146,7 +145,7 @@ func (s *Store) PutMany(ctx context.Context, delegations []delegation.Delegation
 	return nil
 }
 
-func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ...dlgstore.ListByAudienceOption) (store.Page[delegation.Delegation], error) {
+func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ...dlgstore.ListByAudienceOption) (store.Page[ucan.Delegation], error) {
 	cfg := dlgstore.ListByAudienceConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -175,18 +174,18 @@ func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ..
 
 	out, err := s.dynamo.Query(ctx, input)
 	if err != nil {
-		return store.Page[delegation.Delegation]{}, fmt.Errorf("querying delegations by audience: %w", err)
+		return store.Page[ucan.Delegation]{}, fmt.Errorf("querying delegations by audience: %w", err)
 	}
 
-	results := make([]delegation.Delegation, 0, len(out.Items))
+	results := make([]ucan.Delegation, 0, len(out.Items))
 	for _, item := range out.Items {
 		linkAttr, ok := item["link"].(*types.AttributeValueMemberS)
 		if !ok {
-			return store.Page[delegation.Delegation]{}, fmt.Errorf("missing or invalid link attribute in DynamoDB item")
+			return store.Page[ucan.Delegation]{}, fmt.Errorf("missing or invalid link attribute in DynamoDB item")
 		}
 		dlg, err := s.fetchDelegation(ctx, linkAttr.Value)
 		if err != nil {
-			return store.Page[delegation.Delegation]{}, fmt.Errorf("fetching delegation %s: %w", linkAttr.Value, err)
+			return store.Page[ucan.Delegation]{}, fmt.Errorf("fetching delegation %s: %w", linkAttr.Value, err)
 		}
 		results = append(results, dlg)
 	}
@@ -198,11 +197,11 @@ func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ..
 		}
 	}
 
-	return store.Page[delegation.Delegation]{Results: results, Cursor: cursor}, nil
+	return store.Page[ucan.Delegation]{Results: results, Cursor: cursor}, nil
 }
 
 // fetchDelegation retrieves and decodes a delegation from S3 by its link CID string.
-func (s *Store) fetchDelegation(ctx context.Context, link string) (delegation.Delegation, error) {
+func (s *Store) fetchDelegation(ctx context.Context, link string) (ucan.Delegation, error) {
 	out, err := s.s3.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &s.bucketName,
 		Key:    aws.String(link),
@@ -212,13 +211,9 @@ func (s *Store) fetchDelegation(ctx context.Context, link string) (delegation.De
 	}
 	defer out.Body.Close()
 
-	data, err := io.ReadAll(out.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading delegation from S3: %w", err)
+	var dlg delegation.Delegation
+	if err := dlg.UnmarshalCBOR(out.Body); err != nil {
+		return nil, fmt.Errorf("unmarshaling delegation from CBOR: %w", err)
 	}
-	dlg, err := delegation.Extract(data)
-	if err != nil {
-		return nil, fmt.Errorf("extracting delegation: %w", err)
-	}
-	return dlg, nil
+	return &dlg, nil
 }
