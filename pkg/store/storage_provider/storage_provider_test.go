@@ -196,7 +196,7 @@ func TestStorageProviderStore(t *testing.T) {
 				require.NoError(t, err)
 
 				for _, r := range all {
-					require.NotEqual(t, provider, r.Provider)
+					require.NotEqual(t, provider.DID(), r.Provider)
 				}
 			})
 		})

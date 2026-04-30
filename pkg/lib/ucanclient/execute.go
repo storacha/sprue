@@ -25,9 +25,28 @@ func Execute[T dagcbor.Unmarshaler](
 	inv ucan.Invocation,
 	options ...execution.RequestOption,
 ) (T, ucan.Receipt, error) {
+	fields := []zap.Field{
+		zap.Stringer("issuer", inv.Issuer().DID()),
+		zap.Stringer("subject", inv.Subject().DID()),
+		zap.Stringer("command", inv.Command()),
+		zap.Any("arguments", inv.Arguments()),
+	}
+	if inv.Audience() != nil {
+		fields = append(fields, zap.Stringer("audience", inv.Audience().DID()))
+	}
+	if len(inv.Metadata()) > 0 {
+		fields = append(fields, zap.Any("metadata", inv.Metadata()))
+	}
+	if len(inv.Proofs()) > 0 {
+		fields = append(fields, zap.Stringers("proofs", inv.Proofs()))
+	}
+	log := logger.With(zap.Dict("invocation", fields...))
+	log.Debug("executing invocation")
+
 	var zero T
 	resp, err := client.Execute(execution.NewRequest(ctx, inv, options...))
 	if err != nil {
+		log.Error("failed to execute invocation", zap.Error(err))
 		return zero, nil, fmt.Errorf("executing invocation: %w", err)
 	}
 
@@ -44,6 +63,7 @@ func Execute[T dagcbor.Unmarshaler](
 			}
 			err := datamodel.Rebind(datamodel.NewAny(o), ok)
 			if err != nil {
+				log.Error("failed to bind invocation response", zap.Error(err))
 				return zero, fmt.Errorf("binding invocation response: %w", err)
 			}
 			return ok, nil
@@ -52,10 +72,11 @@ func Execute[T dagcbor.Unmarshaler](
 			var model edm.ErrorModel
 			err := datamodel.Rebind(datamodel.NewAny(x), &model)
 			if err != nil {
-				logger.Error("execution failure", zap.Any("error", x))
+				log.Error("failed to bind execution failure", zap.Error(err))
+				log.Error("failed execution", zap.Any("error", x))
 				return zero, fmt.Errorf("executing invocation: %v", x)
 			}
-			logger.Error("execution failure", zap.String("name", model.ErrorName), zap.Error(model))
+			log.Error("failed execution", zap.String("name", model.ErrorName), zap.Error(model))
 			return zero, fmt.Errorf("executing invocation: %w", model)
 		},
 	)

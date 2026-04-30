@@ -2,8 +2,8 @@ package provider
 
 import (
 	cdm "github.com/alanshaw/libracha/capabilities/datamodel"
-	pdm "github.com/alanshaw/libracha/capabilities/provider/datamodel"
 	"github.com/alanshaw/ucantone/validator/bindcap"
+	pdm "github.com/storacha/sprue/pkg/capabilities/admin/provider/datamodel"
 )
 
 const DeregisterCommand = "/admin/provider/deregister"
