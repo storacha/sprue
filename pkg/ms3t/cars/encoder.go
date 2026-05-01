@@ -46,6 +46,47 @@ func Write(w io.Writer, roots []cid.Cid, blocks []block.Block) error {
 	return err
 }
 
+// WriteHeader writes only the CAR v1 header (root array + version)
+// and returns the number of bytes written. Used by callers that
+// build a CAR incrementally — e.g. an append-only log segment that
+// emits one header at open and many block frames over time.
+func WriteHeader(w io.Writer, roots []cid.Cid) (int64, error) {
+	if len(roots) == 0 {
+		return 0, fmt.Errorf("cars: at least one root required")
+	}
+	cw := &countingWriter{w: w}
+	headerBytes, err := encodeHeader(roots)
+	if err != nil {
+		return 0, fmt.Errorf("cars: encode header: %w", err)
+	}
+	if err := writeUvarint(cw, uint64(len(headerBytes))); err != nil {
+		return cw.n, fmt.Errorf("cars: write header len: %w", err)
+	}
+	if _, err := cw.Write(headerBytes); err != nil {
+		return cw.n, fmt.Errorf("cars: write header: %w", err)
+	}
+	return cw.n, nil
+}
+
+// WriteBlocksAt writes only block frames (no header) at fileOffset
+// and returns the absolute byte positions of each block's payload
+// within the file. Use this to extend an already-open CAR built by
+// WriteHeader. fileOffset must equal the current end-of-file size of
+// the underlying writer; positions returned reflect that origin so
+// they can be used as ReadAt offsets directly.
+func WriteBlocksAt(w io.Writer, fileOffset int64, blocks []block.Block) ([]BlockPosition, error) {
+	cw := &countingWriter{w: w, n: fileOffset}
+	positions := make([]BlockPosition, 0, len(blocks))
+	for i, blk := range blocks {
+		pos, err := writeBlock(cw, blk)
+		if err != nil {
+			return positions, fmt.Errorf("cars: write block %d (%s): %w", i, blk.Cid(), err)
+		}
+		positions = append(positions, pos)
+	}
+	return positions, nil
+}
+
 // WriteWithPositions is like Write, but additionally returns the byte
 // position of each block's payload within the encoded CAR. Used by the
 // Forge uploader to build a `blobindex.ShardedDagIndexView` mapping

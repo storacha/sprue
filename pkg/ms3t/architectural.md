@@ -398,6 +398,68 @@ We have not measured anything precisely. These are rough impressions.
   (when forge disabled, in the cache mode that isn't currently
   deployed).
 
+## Aligning with the RFCs
+
+There's a parallel design effort for the per-object data layout that
+predates this prototype:
+
+- `shard.rfc` (in this repo) — Forge S3 Facade sharding strategy
+- [storacha/RFC #65](https://github.com/storacha/RFC/pull/65) — Filepack archive format
+- [storacha/RFC #66](https://github.com/storacha/RFC/pull/66) — Virtual DAG in Sharded DAG Index
+
+Together these propose: shard at 256 MB; each shard is a Filepack
+data archive (raw concatenated bytes, no CAR overhead); a UnixFS
+File root links the shards in order; a v0.2 Sharded DAG Index
+inlines that UnixFS root via its new `blocks` property.
+
+The MST-as-bucket idea is **orthogonal to all three RFCs** — they
+address per-object data layout, not how a bucket is structured. So
+the MST work in this PR is independent of whether we adopt the
+RFCs' direction.
+
+The per-object layer of this prototype diverges from the RFCs:
+
+| | RFCs | this PR |
+|---|---|---|
+| shard format | Filepack (raw bytes) | raw IPLD blocks inside one CAR |
+| per-object root | UnixFS File node | `ObjectManifest` (CBOR) |
+| SDI version | v0.2 with inline `blocks` | v0.1 |
+| chunk/shard size | 256 MB | 1 MiB |
+
+Aligning would mean replacing the body fields of `ObjectManifest`
+with a single `cid.Cid` pointing at the UnixFS root, and producing
+Filepack shards instead of raw blocks inside a CAR. The MST
+machinery is unaffected.
+
+### ObjectManifest still has a place under the RFCs
+
+Even after aligning with the RFCs, we'd still want a small per-object
+manifest block:
+
+```go
+type ObjectManifest struct {
+    Content     cid.Cid   // → UnixFS File root
+    ContentType string    // S3 needs this on GET
+    Created     int64     // S3 needs this for Last-Modified
+    // user metadata, cache-control, etc. as needed
+}
+```
+
+The S3 protocol metadata (Content-Type, Last-Modified, user
+`x-amz-meta-*` headers) doesn't have a natural home in UnixFS or
+the SDI. UnixFS-Plus extensibility is thin and not well-supported.
+Inlining the manifest as a block in the SDI's `blocks` (alongside
+the UnixFS root) is possible but mixes layers.
+
+Decision: keep ObjectManifest as a separate CBOR block in the same
+CAR as the MST mutation, with the MST leaf pointing at the manifest
+CID — the same shape we have today. Just smaller, with the body
+fields replaced by a single Content link to the UnixFS root.
+
+If GET latency becomes a real concern, inlining the manifest block
+in the per-object SDI is a one-line change and saves a network hop.
+Defer until needed.
+
 ## Future directions (not implemented)
 
 ### Direct passthrough

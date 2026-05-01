@@ -238,7 +238,7 @@ func (t *Body) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Chunks ([]cid.Cid) (slice)
+	// t.Content (cid.Cid) (struct)
 	if len("c") > 1000000 {
 		return xerrors.Errorf("Value in field \"c\" was too long")
 	}
@@ -250,19 +250,31 @@ func (t *Body) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	if len(t.Chunks) > 8192 {
-		return xerrors.Errorf("Slice value in field t.Chunks was too long")
+	if err := cbg.WriteCid(cw, t.Content); err != nil {
+		return xerrors.Errorf("failed to write cid field t.Content: %w", err)
 	}
 
-	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Chunks))); err != nil {
+	// t.Format (string) (string)
+	if len("f") > 1000000 {
+		return xerrors.Errorf("Value in field \"f\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("f"))); err != nil {
 		return err
 	}
-	for _, v := range t.Chunks {
+	if _, err := cw.WriteString(string("f")); err != nil {
+		return err
+	}
 
-		if err := cbg.WriteCid(cw, v); err != nil {
-			return xerrors.Errorf("failed to write cid field v: %w", err)
-		}
+	if len(t.Format) > 1000000 {
+		return xerrors.Errorf("Value in field t.Format was too long")
+	}
 
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len(t.Format))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string(t.Format)); err != nil {
+		return err
 	}
 
 	// t.SHA256 ([]uint8) (slice)
@@ -311,6 +323,173 @@ func (t *Body) MarshalCBOR(w io.Writer) error {
 		}
 	}
 
+	return nil
+}
+
+func (t *Body) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = Body{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajMap {
+		return fmt.Errorf("cbor input should be of type map")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("Body: map struct too large (%d)", extra)
+	}
+
+	n := extra
+
+	nameBuf := make([]byte, 1)
+	for i := uint64(0); i < n; i++ {
+		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 1000000)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		switch string(nameBuf[:nameLen]) {
+		// t.Content (cid.Cid) (struct)
+		case "c":
+
+			{
+
+				c, err := cbg.ReadCid(cr)
+				if err != nil {
+					return xerrors.Errorf("failed to read cid field t.Content: %w", err)
+				}
+
+				t.Content = c
+
+			}
+			// t.Format (string) (string)
+		case "f":
+
+			{
+				sval, err := cbg.ReadStringWithMax(cr, 1000000)
+				if err != nil {
+					return err
+				}
+
+				t.Format = string(sval)
+			}
+			// t.SHA256 ([]uint8) (slice)
+		case "h":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 2097152 {
+				return fmt.Errorf("t.SHA256: byte array too large (%d)", extra)
+			}
+			if maj != cbg.MajByteString {
+				return fmt.Errorf("expected byte array")
+			}
+
+			if extra > 0 {
+				t.SHA256 = make([]uint8, extra)
+			}
+
+			if _, err := io.ReadFull(cr, t.SHA256); err != nil {
+				return err
+			}
+
+			// t.Size (int64) (int64)
+		case "s":
+			{
+				maj, extra, err := cr.ReadHeader()
+				if err != nil {
+					return err
+				}
+				var extraI int64
+				switch maj {
+				case cbg.MajUnsignedInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 positive overflow")
+					}
+				case cbg.MajNegativeInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 negative overflow")
+					}
+					extraI = -1 - extraI
+				default:
+					return fmt.Errorf("wrong type for int64 field: %d", maj)
+				}
+
+				t.Size = int64(extraI)
+			}
+
+		default:
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+func (t *FixedChunkerIndex) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write([]byte{162}); err != nil {
+		return err
+	}
+
+	// t.Chunks ([]cid.Cid) (slice)
+	if len("c") > 1000000 {
+		return xerrors.Errorf("Value in field \"c\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("c"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("c")); err != nil {
+		return err
+	}
+
+	if len(t.Chunks) > 8192 {
+		return xerrors.Errorf("Slice value in field t.Chunks was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Chunks))); err != nil {
+		return err
+	}
+	for _, v := range t.Chunks {
+
+		if err := cbg.WriteCid(cw, v); err != nil {
+			return xerrors.Errorf("failed to write cid field v: %w", err)
+		}
+
+	}
+
 	// t.ChunkSize (int64) (int64)
 	if len("cs") > 1000000 {
 		return xerrors.Errorf("Value in field \"cs\" was too long")
@@ -336,8 +515,8 @@ func (t *Body) MarshalCBOR(w io.Writer) error {
 	return nil
 }
 
-func (t *Body) UnmarshalCBOR(r io.Reader) (err error) {
-	*t = Body{}
+func (t *FixedChunkerIndex) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = FixedChunkerIndex{}
 
 	cr := cbg.NewCborReader(r)
 
@@ -356,7 +535,7 @@ func (t *Body) UnmarshalCBOR(r io.Reader) (err error) {
 	}
 
 	if extra > cbg.MaxLength {
-		return fmt.Errorf("Body: map struct too large (%d)", extra)
+		return fmt.Errorf("FixedChunkerIndex: map struct too large (%d)", extra)
 	}
 
 	n := extra
@@ -418,55 +597,6 @@ func (t *Body) UnmarshalCBOR(r io.Reader) (err error) {
 					}
 
 				}
-			}
-			// t.SHA256 ([]uint8) (slice)
-		case "h":
-
-			maj, extra, err = cr.ReadHeader()
-			if err != nil {
-				return err
-			}
-
-			if extra > 2097152 {
-				return fmt.Errorf("t.SHA256: byte array too large (%d)", extra)
-			}
-			if maj != cbg.MajByteString {
-				return fmt.Errorf("expected byte array")
-			}
-
-			if extra > 0 {
-				t.SHA256 = make([]uint8, extra)
-			}
-
-			if _, err := io.ReadFull(cr, t.SHA256); err != nil {
-				return err
-			}
-
-			// t.Size (int64) (int64)
-		case "s":
-			{
-				maj, extra, err := cr.ReadHeader()
-				if err != nil {
-					return err
-				}
-				var extraI int64
-				switch maj {
-				case cbg.MajUnsignedInt:
-					extraI = int64(extra)
-					if extraI < 0 {
-						return fmt.Errorf("int64 positive overflow")
-					}
-				case cbg.MajNegativeInt:
-					extraI = int64(extra)
-					if extraI < 0 {
-						return fmt.Errorf("int64 negative overflow")
-					}
-					extraI = -1 - extraI
-				default:
-					return fmt.Errorf("wrong type for int64 field: %d", maj)
-				}
-
-				t.Size = int64(extraI)
 			}
 			// t.ChunkSize (int64) (int64)
 		case "cs":

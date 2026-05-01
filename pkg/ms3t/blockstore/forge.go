@@ -11,10 +11,9 @@ import (
 
 	block "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
-	cbor "github.com/ipfs/go-ipld-cbor"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-libstoracha/capabilities/assert"
 	contentcap "github.com/storacha/go-libstoracha/capabilities/space/content"
+	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-libstoracha/failure"
 	rclient "github.com/storacha/go-ucanto/client/retrieval"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
@@ -28,6 +27,10 @@ import (
 	indexclient "github.com/storacha/indexing-service/pkg/client"
 	"go.uber.org/zap"
 )
+
+// ErrNotFound is returned by Get when the indexing-service has no
+// location commitment for the requested CID.
+var ErrNotFound = errors.New("blockstore: not found")
 
 // Forge is a read-only IpldBlockstore that resolves CIDs through the
 // Storacha indexing-service and fetches the underlying bytes via
@@ -49,6 +52,8 @@ type Forge struct {
 	spaces      []did.DID
 	logger      *zap.Logger
 }
+
+var _ BlockReader = (*Forge)(nil)
 
 // ForgeConfig wires sprue's existing services into a read-only Forge
 // blockstore.
@@ -130,11 +135,11 @@ func NewForge(cfg ForgeConfig) (*Forge, error) {
 	}, nil
 }
 
-// Get resolves the CID through the indexer and retrieves the
+// GetBlock resolves the CID through the indexer and retrieves the
 // underlying byte slice from piri via a UCAN-authorized
 // `space/content/retrieve` invocation. The request is scoped to
 // the inner block's offset/length within the containing CAR shard.
-func (f *Forge) Get(ctx context.Context, c cid.Cid) (block.Block, error) {
+func (f *Forge) GetBlock(ctx context.Context, c cid.Cid) (block.Block, error) {
 	locations, err := f.locator.Locate(ctx, f.spaces, c.Hash())
 	if err != nil {
 		var nf locator.NotFoundError
@@ -190,9 +195,9 @@ func (f *Forge) Get(ctx context.Context, c cid.Cid) (block.Block, error) {
 	rangeEnd := rangeStart + loc.Position.Length - 1
 
 	inv, err := contentcap.Retrieve.Invoke(
-		f.signer,                  // issuer = sprue
-		storageProvider,           // audience = piri
-		space.String(),            // with = space
+		f.signer,        // issuer = sprue
+		storageProvider, // audience = piri
+		space.String(),  // with = space
 		contentcap.RetrieveCaveats{
 			Blob:  contentcap.BlobDigest{Digest: caveats.Content.Hash()},
 			Range: contentcap.Range{Start: rangeStart, End: rangeEnd},
@@ -247,14 +252,6 @@ func (f *Forge) Get(ctx context.Context, c cid.Cid) (block.Block, error) {
 	return block.NewBlockWithCid(body, c)
 }
 
-// Put is a no-op. CARBuffer.Commit calls Put on its underlying
-// blockstore for every freshly-Submitted block; in no_cache mode we
-// don't want to persist anything locally because the uploader has
-// already shipped the data to Forge.
-func (f *Forge) Put(_ context.Context, _ block.Block) error {
-	return nil
-}
-
 // newAuthorizeRetrieval returns the AuthorizeRetrievalFunc the
 // IndexLocator calls before each indexer query. The space signer
 // (root authority) directly authorizes the indexer to fetch any
@@ -284,5 +281,3 @@ func newAuthorizeRetrieval(spaceSigner principal.Signer, indexerDID did.DID) loc
 		)
 	}
 }
-
-var _ cbor.IpldBlockstore = (*Forge)(nil)

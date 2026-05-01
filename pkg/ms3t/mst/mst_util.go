@@ -9,8 +9,8 @@ import (
 	"unsafe"
 
 	"github.com/ipfs/go-cid"
-	cbor "github.com/ipfs/go-ipld-cbor"
-	mh "github.com/multiformats/go-multihash"
+
+	"github.com/storacha/sprue/pkg/ms3t/blockstore"
 )
 
 // MaxKeyBytes is the maximum length, in bytes, of a key stored in the MST.
@@ -64,7 +64,7 @@ func layerForEntries(entries []nodeEntry) int {
 	return leadingZerosOnHash(firstLeaf.Key)
 }
 
-func deserializeNodeData(ctx context.Context, cst cbor.IpldStore, nd *NodeData, layer int) ([]nodeEntry, error) {
+func deserializeNodeData(ctx context.Context, cst blockstore.Reader, nd *NodeData, layer int) ([]nodeEntry, error) {
 	entries := []nodeEntry{}
 	if nd.Left != nil {
 		entries = append(entries, nodeEntry{
@@ -106,14 +106,14 @@ func deserializeNodeData(ctx context.Context, cst cbor.IpldStore, nd *NodeData, 
 	return entries, nil
 }
 
-func serializeNodeData(entries []nodeEntry) (*NodeData, error) {
+func serializeNodeData(ctx context.Context, entries []nodeEntry, writer blockstore.Store) (*NodeData, error) {
 	var data NodeData
 
 	i := 0
 	if len(entries) > 0 && entries[0].isTree() {
 		i++
 
-		ptr, err := entries[0].Tree.GetPointer(context.TODO())
+		ptr, err := entries[0].Tree.GetPointer(ctx, writer)
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +135,7 @@ func serializeNodeData(entries []nodeEntry) (*NodeData, error) {
 			next := entries[i]
 
 			if next.isTree() {
-				ptr, err := next.Tree.GetPointer(context.TODO())
+				ptr, err := next.Tree.GetPointer(ctx, writer)
 				if err != nil {
 					return nil, fmt.Errorf("getting subtree pointer: %w", err)
 				}
@@ -173,12 +173,12 @@ func countPrefixLen(a, b string) int {
 	return i
 }
 
-func cidForEntries(ctx context.Context, entries []nodeEntry, cst cbor.IpldStore) (cid.Cid, error) {
-	nd, err := serializeNodeData(entries)
+func cidForEntries(ctx context.Context, entries []nodeEntry, writer blockstore.Store) (cid.Cid, error) {
+	nd, err := serializeNodeData(ctx, entries, writer)
 	if err != nil {
 		return cid.Undef, fmt.Errorf("serializing new entries: %w", err)
 	}
-	return cst.Put(ctx, nd)
+	return writer.Put(ctx, nd)
 }
 
 // IsValidKey reports whether s is a valid MST key under this fork's relaxed
@@ -203,10 +203,3 @@ func ensureValidKey(s string) error {
 	return nil
 }
 
-// CborStore wraps a blockstore in a CBOR-aware IpldStore using SHA2-256
-// multihashing. Equivalent to indigo's util.CborStore.
-func CborStore(bs cbor.IpldBlockstore) *cbor.BasicIpldStore {
-	cst := cbor.NewCborStore(bs)
-	cst.DefaultMultihash = mh.SHA2_256
-	return cst
-}

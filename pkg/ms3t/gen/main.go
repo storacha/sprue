@@ -1,4 +1,5 @@
-// Generates CBOR marshal/unmarshal methods for ms3t types. Run from repo root:
+// Generates CBOR marshal/unmarshal methods for ms3t types. Run from
+// pkg/ms3t/:
 //
 //	go run ./gen
 package main
@@ -10,7 +11,11 @@ import (
 
 func main() {
 	cfg := cbg.Gen{MaxStringLength: 1_000_000}
-	if err := cfg.WriteMapEncodersToFile("bucket/cbor_gen.go", "bucket", bucket.ObjectManifest{}, bucket.Body{}); err != nil {
+	if err := cfg.WriteMapEncodersToFile("bucket/cbor_gen.go", "bucket",
+		bucket.ObjectManifest{},
+		bucket.Body{},
+		bucket.FixedChunkerIndex{},
+	); err != nil {
 		panic(err)
 	}
 }

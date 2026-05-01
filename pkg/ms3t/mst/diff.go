@@ -5,7 +5,8 @@ import (
 	"fmt"
 
 	cid "github.com/ipfs/go-cid"
-	cbor "github.com/ipfs/go-ipld-cbor"
+
+	"github.com/storacha/sprue/pkg/ms3t/blockstore"
 )
 
 // DiffOp describes a single change between two MST roots.
@@ -19,8 +20,8 @@ type DiffOp struct {
 
 // DiffTrees enumerates the additions, deletions, and mutations needed to go
 // from the MST rooted at `from` to the MST rooted at `to`.
-func DiffTrees(ctx context.Context, bs cbor.IpldBlockstore, from, to cid.Cid) ([]*DiffOp, error) {
-	cst := CborStore(bs)
+func DiffTrees(ctx context.Context, bs blockstore.BaseStore, from, to cid.Cid) ([]*DiffOp, error) {
+	cst := blockstore.CborStore(bs)
 
 	if from == cid.Undef {
 		return identityDiff(ctx, bs, to)
@@ -173,8 +174,8 @@ func nodeEntriesEqual(a, b *nodeEntry) bool {
 	return false
 }
 
-func identityDiff(ctx context.Context, bs cbor.IpldBlockstore, root cid.Cid) ([]*DiffOp, error) {
-	cst := CborStore(bs)
+func identityDiff(ctx context.Context, bs blockstore.BaseStore, root cid.Cid) ([]*DiffOp, error) {
+	cst := blockstore.CborStore(bs)
 	tt := LoadMST(cst, root)
 
 	var ops []*DiffOp

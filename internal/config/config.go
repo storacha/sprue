@@ -155,48 +155,34 @@ type MS3TConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 	// Addr is the host:port to bind the S3 listener to.
 	Addr string `mapstructure:"addr"`
-	// DataDir is where ms3t persists its SQLite blockstore + bucket
-	// registry and (when Forge is disabled) emits CARs to disk.
+	// DataDir is where ms3t persists its log segments, space key, and
+	// any other on-disk state.
 	DataDir string `mapstructure:"data_dir"`
 	// ChunkSize is the body chunk size used for new objects, in bytes.
 	// 0 → ms3t default (1 MiB).
 	ChunkSize int64 `mapstructure:"chunk_size"`
-	// BatchBytes is the buffered-CAR size at which the uploader
-	// flushes. 0 → ms3t default (64 MiB).
-	BatchBytes int64 `mapstructure:"batch_bytes"`
-	// BatchAge is the idle interval after which the uploader flushes.
-	// 0 → ms3t default (5s).
-	BatchAge string `mapstructure:"batch_age"`
+	// SealBytes is the open-segment size at which the log seals and
+	// sends the segment to the background flusher. 0 → 64 MiB.
+	SealBytes int64 `mapstructure:"seal_bytes"`
+	// SealAge is the maximum time the log will keep an open segment
+	// before sealing it. Drives the seal cadence under low write
+	// volume. 0 → 5s.
+	SealAge string `mapstructure:"seal_age"`
+	// Retain is the number of most-recent sealed segments to keep on
+	// disk after a successful Forge flush. Older flushed segments are
+	// unlinked. Higher values trade disk for read locality. 0 → 6.
+	Retain int `mapstructure:"retain"`
 
-	// Forge controls whether ms3t ships CARs to a Storacha Forge
-	// stack via guppy. When disabled (the default), CARs go to disk
-	// only under DataDir/cars.
-	Forge MS3TForgeConfig `mapstructure:"forge"`
-}
-
-// MS3TForgeConfig holds the optional Forge upload integration.
-// When MS3T.Forge.Enabled is true, every batched CAR is shipped to
-// piri through sprue's own routing, piriclient, and indexerclient
-// — no UCAN-over-HTTP loopback, no separate principal/delegation
-// setup.
-//
-// ms3t generates and persists its own space keypair on first run.
-// The space's DID is derived from that keypair, and ms3t acts as
-// the root UCAN authority over its own space (so it can issue the
-// retrieval delegations the indexer needs to validate writes).
-type MS3TForgeConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-	// SpaceKeyFile is the path to the persisted space keypair.
-	// Generated on first run if missing. Defaults to
-	// <data_dir>/space.key.
-	SpaceKeyFile string `mapstructure:"space_key_file"`
-	// NoCache routes all block reads (MST nodes, manifests, body
-	// chunks) through the indexing-service + piri instead of a local
-	// SQLite cache, AND makes writes synchronous to Forge (Batched
-	// is bypassed). Closes the read-after-write race; raises per-PUT
-	// latency to the cost of the Forge round trip. Requires
-	// Enabled = true.
-	NoCache bool `mapstructure:"no_cache"`
+	// Region is the AWS region advertised to S3 clients. Used by the
+	// versitygw protocol layer for sigv4 verification.
+	Region string `mapstructure:"region"`
+	// RootAccess is the access key id of the single-account IAM
+	// root user. Required when Enabled is true.
+	RootAccess string `mapstructure:"root_access"`
+	// RootSecret is the secret access key paired with RootAccess.
+	// Required when Enabled is true. Provide via env
+	// (SPRUE_MS3T_ROOT_SECRET) — do not commit to config files.
+	RootSecret string `mapstructure:"root_secret"`
 }
 
 type MailerConfig struct {
@@ -266,8 +252,10 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("ms3t.enabled", false)
 	v.SetDefault("ms3t.addr", ":9000")
 	v.SetDefault("ms3t.data_dir", "./ms3t-data")
-	v.SetDefault("ms3t.batch_age", "5s")
-	v.SetDefault("ms3t.forge.enabled", false)
+	v.SetDefault("ms3t.seal_bytes", 64<<20)
+	v.SetDefault("ms3t.seal_age", "5s")
+	v.SetDefault("ms3t.retain", 6)
+	v.SetDefault("ms3t.region", "us-east-1")
 }
 
 // BindEnvVars sets up environment variable binding with SPRUE_ prefix.

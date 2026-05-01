@@ -18,8 +18,15 @@ import (
 	"reflect"
 
 	"github.com/ipfs/go-cid"
-	cbor "github.com/ipfs/go-ipld-cbor"
+
+	"github.com/storacha/sprue/pkg/ms3t/blockstore"
 )
+
+// The MST package consumes blockstore.Reader on the load + traversal
+// path and blockstore.Store on the materialization (GetPointer)
+// path. Mutating operations (Add, Update, Delete) build new
+// in-memory tree values without any I/O writes; the only write site
+// in the package is GetPointer, which takes a writer argument.
 
 // nodeKind is the type of node in the MST.
 type nodeKind uint8
@@ -84,8 +91,14 @@ type TreeEntry struct {
 // MerkleSearchTree is an MST tree node. Values are immutable: methods return
 // copies with changes applied. Hydration is lazy; a tree loaded by CID has no
 // entries until getEntries is called.
+//
+// The cst field is a blockstore.Reader: traversal and mutation
+// (Add/Update/Delete) both stay read-only at the storage level,
+// returning new in-memory MerkleSearchTree values rather than
+// persisting anything. The only write site is GetPointer, which
+// takes its writer as an explicit argument.
 type MerkleSearchTree struct {
-	cst      cbor.IpldStore
+	cst      blockstore.Reader
 	entries  []nodeEntry // non-nil when "hydrated"
 	layer    int
 	pointer  cid.Cid
@@ -93,11 +106,11 @@ type MerkleSearchTree struct {
 }
 
 // NewEmptyMST returns a new empty MST using cst as its storage.
-func NewEmptyMST(cst cbor.IpldStore) *MerkleSearchTree {
+func NewEmptyMST(cst blockstore.Reader) *MerkleSearchTree {
 	return createMST(cst, cid.Undef, []nodeEntry{}, 0)
 }
 
-func createMST(cst cbor.IpldStore, ptr cid.Cid, entries []nodeEntry, layer int) *MerkleSearchTree {
+func createMST(cst blockstore.Reader, ptr cid.Cid, entries []nodeEntry, layer int) *MerkleSearchTree {
 	mst := &MerkleSearchTree{
 		cst:      cst,
 		pointer:  ptr,
@@ -110,7 +123,7 @@ func createMST(cst cbor.IpldStore, ptr cid.Cid, entries []nodeEntry, layer int) 
 
 // LoadMST returns a lazy reference to an MST rooted at the given CID. Entries
 // are not loaded until needed.
-func LoadMST(cst cbor.IpldStore, root cid.Cid) *MerkleSearchTree {
+func LoadMST(cst blockstore.Reader, root cid.Cid) *MerkleSearchTree {
 	return createMST(cst, root, nil, -1)
 }
 
@@ -149,7 +162,7 @@ func (mst *MerkleSearchTree) getEntries(ctx context.Context) ([]nodeEntry, error
 	return nil, fmt.Errorf("no entries or self-pointer (CID) on MerkleSearchTree")
 }
 
-func entriesFromNodeData(ctx context.Context, nd *NodeData, cst cbor.IpldStore) ([]nodeEntry, error) {
+func entriesFromNodeData(ctx context.Context, nd *NodeData, cst blockstore.Reader) ([]nodeEntry, error) {
 	layer := -1
 	if len(nd.Entries) > 0 {
 		// the first entry's KeySuffix is a complete key (PrefixLen=0)
@@ -166,8 +179,11 @@ func entriesFromNodeData(ctx context.Context, nd *NodeData, cst cbor.IpldStore) 
 }
 
 // GetPointer returns the CID of this MST root, recomputing it if any subtree
-// has been mutated since the last call.
-func (mst *MerkleSearchTree) GetPointer(ctx context.Context) (cid.Cid, error) {
+// has been mutated since the last call. writer is the IpldStore that any
+// freshly-serialized subtree nodes are Put through; only this method (and the
+// cidForEntries / serializeNodeData helpers it drives) ever issues writes
+// against it.
+func (mst *MerkleSearchTree) GetPointer(ctx context.Context, writer blockstore.Store) (cid.Cid, error) {
 	if mst.validPtr {
 		return mst.pointer, nil
 	}
@@ -179,7 +195,7 @@ func (mst *MerkleSearchTree) GetPointer(ctx context.Context) (cid.Cid, error) {
 	for i, e := range mst.entries {
 		if e.isTree() {
 			if !e.Tree.validPtr {
-				if _, err := e.Tree.GetPointer(ctx); err != nil {
+				if _, err := e.Tree.GetPointer(ctx, writer); err != nil {
 					return cid.Undef, err
 				}
 				mst.entries[i] = e
@@ -187,7 +203,7 @@ func (mst *MerkleSearchTree) GetPointer(ctx context.Context) (cid.Cid, error) {
 		}
 	}
 
-	nptr, err := cidForEntries(ctx, mst.entries, mst.cst)
+	nptr, err := cidForEntries(ctx, mst.entries, writer)
 	if err != nil {
 		return cid.Undef, err
 	}
