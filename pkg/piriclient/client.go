@@ -17,7 +17,7 @@ import (
 	"github.com/alanshaw/ucantone/ucan/invocation"
 	"github.com/alanshaw/ucantone/ucan/promise"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/sprue/pkg/lib/ucanclient"
+	"github.com/storacha/sprue/pkg/lib/ucan_client"
 	"go.uber.org/zap"
 )
 
@@ -76,7 +76,7 @@ func (c *Client) Allocate(ctx context.Context, req *AllocateRequest, matcher uca
 		zap.Stringer("audience", inv.Audience().DID()),
 		zap.Int("proofs", len(prfs)))
 
-	allocOK, rcpt, err := ucanclient.Execute[*blobcap.AllocateOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...))
+	allocOK, rcpt, err := ucan_client.Execute[*blobcap.AllocateOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...))
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -138,7 +138,7 @@ func (c *Client) Accept(ctx context.Context, req *AcceptRequest, matcher ucanlib
 		zap.Stringer("audience", inv.Audience().DID()),
 		zap.Int("proofs", len(prfs)))
 
-	acceptOK, rcpt, err := ucanclient.Execute[*blobcap.AcceptOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...))
+	acceptOK, rcpt, err := ucan_client.Execute[*blobcap.AcceptOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...))
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -223,7 +223,7 @@ func (c *Client) ReplicaAllocate(ctx context.Context, req *ReplicaAllocateReques
 		zap.Stringer("audience", inv.Audience().DID()),
 		zap.Int("proofs", len(inv.Proofs())))
 
-	allocOK, rcpt, err := ucanclient.Execute[*blobreplicacap.AllocateOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...), execution.WithInvocations(req.Site))
+	allocOK, rcpt, err := ucan_client.Execute[*blobreplicacap.AllocateOK](ctx, c.client, c.logger, inv, execution.WithProofs(prfs...), execution.WithInvocations(req.Site))
 	if err != nil {
 		return nil, nil, nil, err
 	}

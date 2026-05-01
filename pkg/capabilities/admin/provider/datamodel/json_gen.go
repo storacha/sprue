@@ -141,6 +141,28 @@ func (t *ProviderModel) MarshalDagJSON(w io.Writer) error {
 		}
 	}
 
+	// t.ReplicationWeight (uint64) (uint64)
+	if len("replicationWeight") > 8192 {
+		return fmt.Errorf("String in field \"replicationWeight\" was too long")
+	}
+	if err := jw.WriteString(string("replicationWeight")); err != nil {
+		return fmt.Errorf("\"replicationWeight\": %w", err)
+	}
+	if err := jw.WriteObjectColon(); err != nil {
+		return err
+	}
+
+	if err := jw.WriteUint64(uint64(t.ReplicationWeight)); err != nil {
+		return fmt.Errorf("t.ReplicationWeight: %w", err)
+	}
+
+	written++
+	if written > 0 {
+		if err := jw.WriteComma(); err != nil {
+			return err
+		}
+	}
+
 	// t.Weight (uint64) (uint64)
 	if len("weight") > 8192 {
 		return fmt.Errorf("String in field \"weight\" was too long")
@@ -214,6 +236,18 @@ func (t *ProviderModel) UnmarshalDagJSON(r io.Reader) (err error) {
 
 				if err := t.Provider.UnmarshalDagJSON(jr); err != nil {
 					return fmt.Errorf("unmarshaling t.Provider: %w", err)
+				}
+
+				// t.ReplicationWeight (uint64) (uint64)
+			case "replicationWeight":
+				{
+
+					nval, err := jr.ReadNumberAsUint64()
+					if err != nil {
+						return fmt.Errorf("t.ReplicationWeight: %w", err)
+					}
+					t.ReplicationWeight = uint64(nval)
+
 				}
 
 				// t.Weight (uint64) (uint64)

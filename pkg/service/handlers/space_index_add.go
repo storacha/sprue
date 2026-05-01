@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/errors"
 	spaceindexcap "github.com/storacha/go-libstoracha/capabilities/space/index"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
@@ -19,7 +20,6 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/provisioning"
 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
 )

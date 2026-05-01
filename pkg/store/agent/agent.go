@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/alanshaw/ucantone/ucan"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/sprue/pkg/lib/errors"
 )
 
 const (

@@ -16,7 +16,7 @@ import (
 	"github.com/alanshaw/ucantone/ucan"
 	"github.com/alanshaw/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/sprue/pkg/lib/ucanclient"
+	"github.com/storacha/sprue/pkg/lib/ucan_client"
 	"go.uber.org/zap"
 )
 
@@ -73,7 +73,7 @@ func (c *Client) PublishIndexClaim(ctx context.Context, space did.DID, content, 
 		return nil, fmt.Errorf("creating invocation: %w", err)
 	}
 
-	_, rcpt, err := ucanclient.Execute[*assertcap.IndexOK](ctx, c.client, c.logger, inv, execution.WithDelegations(retrievalAuth...))
+	_, rcpt, err := ucan_client.Execute[*assertcap.IndexOK](ctx, c.client, c.logger, inv, execution.WithDelegations(retrievalAuth...))
 	if err != nil {
 		return nil, fmt.Errorf("executing assert index invocation: %w", err)
 	}

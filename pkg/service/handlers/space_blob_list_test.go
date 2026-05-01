@@ -3,12 +3,12 @@ package handlers_test
 import (
 	"testing"
 
+	"github.com/alanshaw/libracha/didmailto"
 	"github.com/storacha/go-libstoracha/capabilities/space/blob"
 	"github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure/datamodel"
 	"github.com/storacha/sprue/internal/testutil"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"

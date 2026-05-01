@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/alanshaw/libracha/didmailto"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
 	httpcap "github.com/storacha/go-libstoracha/capabilities/http"
@@ -16,7 +17,6 @@ import (
 	"github.com/storacha/go-ucanto/core/result/ok"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/internal/testutil"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/service/handlers"

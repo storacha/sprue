@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alanshaw/ucantone/errors"
 	replicacaps "github.com/storacha/go-libstoracha/capabilities/blob/replica"
 	ucancaps "github.com/storacha/go-libstoracha/capabilities/ucan"
 	"github.com/storacha/go-libstoracha/digestutil"
@@ -21,7 +22,6 @@ import (
 	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store/agent"
 	"github.com/storacha/sprue/pkg/store/replica"
 	"go.uber.org/zap"

@@ -15,11 +15,11 @@ import (
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 
+	"github.com/alanshaw/libracha/didmailto"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/billing"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/provisioning"
 )
 

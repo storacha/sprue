@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/sprue/pkg/lib/errors"
 )
 
 const (

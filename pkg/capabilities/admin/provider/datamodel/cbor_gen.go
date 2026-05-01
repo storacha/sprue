@@ -92,7 +92,7 @@ func (t *ProviderModel) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write([]byte{163}); err != nil {
+	if _, err := cw.Write([]byte{164}); err != nil {
 		return err
 	}
 
@@ -150,6 +150,23 @@ func (t *ProviderModel) MarshalCBOR(w io.Writer) error {
 	if err := t.Provider.MarshalCBOR(cw); err != nil {
 		return err
 	}
+
+	// t.ReplicationWeight (uint64) (uint64)
+	if len("replicationWeight") > 8192 {
+		return xerrors.Errorf("Value in field \"replicationWeight\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("replicationWeight"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("replicationWeight")); err != nil {
+		return err
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.ReplicationWeight)); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -178,7 +195,7 @@ func (t *ProviderModel) UnmarshalCBOR(r io.Reader) (err error) {
 
 	n := extra
 
-	nameBuf := make([]byte, 8)
+	nameBuf := make([]byte, 17)
 	for i := uint64(0); i < n; i++ {
 		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
 		if err != nil {
@@ -228,6 +245,21 @@ func (t *ProviderModel) UnmarshalCBOR(r io.Reader) (err error) {
 				if err := t.Provider.UnmarshalCBOR(cr); err != nil {
 					return xerrors.Errorf("unmarshaling t.Provider: %w", err)
 				}
+
+			}
+			// t.ReplicationWeight (uint64) (uint64)
+		case "replicationWeight":
+
+			{
+
+				maj, extra, err = cr.ReadHeader()
+				if err != nil {
+					return err
+				}
+				if maj != cbg.MajUnsignedInt {
+					return fmt.Errorf("wrong type for uint64 field")
+				}
+				t.ReplicationWeight = uint64(extra)
 
 			}
 

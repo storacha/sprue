@@ -33,9 +33,9 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/store/agent"

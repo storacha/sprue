@@ -15,12 +15,12 @@ var deregisterCmd = &cobra.Command{
 }
 
 func doDeregister(cmd *cobra.Command, args []string) error {
-	c, _, _, id := lib.InitClient(cmd)
+	c, _, _, _ := lib.InitClient(cmd)
 
 	providerID, err := did.Parse(args[0])
 	cobra.CheckErr(err)
 
-	_, err = c.AdminProviderDeregister(cmd.Context(), id.Signer, providerID)
+	_, err = c.AdminProviderDeregister(cmd.Context(), providerID)
 	cobra.CheckErr(err)
 
 	cmd.Println("Provider deregistered successfully")

@@ -7,11 +7,11 @@ import (
 	"slices"
 
 	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/alanshaw/ucantone/ipld/codec/dagcbor"
 	"github.com/alanshaw/ucantone/ipld/datamodel"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	"github.com/storacha/sprue/pkg/store/subscription"
 )

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/storacha/go-libstoracha/capabilities/blob"
 	"github.com/storacha/go-libstoracha/capabilities/http"
 	"github.com/storacha/go-libstoracha/capabilities/ucan"
@@ -16,7 +17,6 @@ import (
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/store/agent"

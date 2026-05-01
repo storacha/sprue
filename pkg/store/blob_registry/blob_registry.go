@@ -6,9 +6,9 @@ import (
 
 	"github.com/alanshaw/libracha/capabilities/blob"
 	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 

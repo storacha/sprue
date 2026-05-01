@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 

@@ -1,4 +1,4 @@
-package ucanclient
+package ucan_client
 
 import (
 	"context"

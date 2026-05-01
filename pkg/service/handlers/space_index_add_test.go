@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"testing"
 
+	"github.com/alanshaw/libracha/didmailto"
 	ipldprime "github.com/ipld/go-ipld-prime"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
@@ -14,7 +15,6 @@ import (
 	"github.com/storacha/go-ucanto/core/result/failure/datamodel"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/internal/testutil"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
 	"github.com/storacha/sprue/pkg/provisioning"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	consumer_store "github.com/storacha/sprue/pkg/store/consumer/memory"

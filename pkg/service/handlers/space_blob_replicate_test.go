@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alanshaw/libracha/didmailto"
 	"github.com/alanshaw/ucantone/did"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/storacha/go-libstoracha/capabilities/assert"
@@ -28,7 +29,6 @@ import (
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/identity"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
 	"github.com/storacha/sprue/pkg/piriclient"
 	"github.com/storacha/sprue/pkg/routing"
 	"github.com/storacha/sprue/pkg/service/handlers"

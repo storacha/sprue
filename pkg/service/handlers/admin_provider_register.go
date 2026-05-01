@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/invocation"
@@ -17,7 +18,6 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/capabilities/admin/provider"
 	"github.com/storacha/sprue/pkg/identity"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
 )
 

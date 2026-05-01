@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/alanshaw/libracha/didmailto"
 	"github.com/alanshaw/ucantone/did"
 	"github.com/storacha/sprue/internal/testutil"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
 	"github.com/storacha/sprue/pkg/provisioning"
 	"github.com/storacha/sprue/pkg/store/consumer"
 	consumermemory "github.com/storacha/sprue/pkg/store/consumer/memory"

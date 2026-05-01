@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/alanshaw/ucantone/did"
-	"github.com/storacha/sprue/pkg/lib/errors"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 

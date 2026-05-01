@@ -7,13 +7,12 @@ import (
 	"net/http"
 	"slices"
 
-	edm "github.com/alanshaw/ucantone/errors/datamodel"
-	"github.com/alanshaw/ucantone/execution"
+	"github.com/alanshaw/libracha/didmailto"
 	"github.com/alanshaw/ucantone/ipld"
-	"github.com/alanshaw/ucantone/ipld/datamodel"
 	"github.com/alanshaw/ucantone/result"
 	"github.com/alanshaw/ucantone/server"
 	"github.com/alanshaw/ucantone/ucan"
+	"github.com/alanshaw/ucantone/validator"
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
 	"github.com/storacha/go-libstoracha/capabilities/access"
@@ -21,11 +20,9 @@ import (
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
-	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
-	"github.com/storacha/sprue/pkg/lib/ucans"
+	"github.com/storacha/sprue/pkg/lib/ucan_server"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	"github.com/storacha/sprue/pkg/service/ui"
 	"github.com/storacha/sprue/pkg/store/agent"
@@ -65,64 +62,17 @@ func New(id *identity.Identity, agentStore agent.Store, delegationStore delegati
 func (s *Service) createUCANServer() *server.HTTPServer {
 	options := append(
 		slices.Clone(s.options),
-		server.WithEventListener(agentMessageLogger{logger: s.logger, agentStore: s.agentStore}),
-		server.WithEventListener(errorHandler{logger: s.logger}),
+		server.WithReceiptTimestamps(true),
+		server.WithEventListener(ucan_server.AgentMessageLogger{Logger: s.logger, AgentStore: s.agentStore}),
+		server.WithEventListener(ucan_server.ErrorHandler{Logger: s.logger}),
+		server.WithValidationOptions(
+			validator.WithPrincipalParser(ucan_server.PrincipalParser),
+			validator.WithNonStandardSignatureVerifier(
+				ucan_server.NewAttestationVerifier(s.identity.Signer.Verifier()),
+			),
+		),
 	)
 	return server.NewHTTP(s.identity.Signer, options...)
-}
-
-type errorHandler struct {
-	logger *zap.Logger
-}
-
-var _ server.ResponseEncodeListener = (*errorHandler)(nil)
-
-func (l errorHandler) OnResponseEncode(ctx context.Context, ct ucan.Container) error {
-	for _, inv := range ct.Invocations() {
-		if r, ok := ct.Receipt(inv.Task().Link()); ok {
-			_, x := result.Unwrap(r.Out())
-			if x != nil {
-				var model edm.ErrorModel
-				datamodel.Rebind(datamodel.NewAny(x), &model)
-				if model.ErrorName == execution.HandlerExecutionErrorName {
-					l.logger.Error(
-						"handler execution error",
-						zap.Stringer("task", inv.Task().Link()),
-						zap.Stringer("command", inv.Command()),
-						zap.Any("args", inv.Arguments()),
-						zap.Error(model),
-					)
-				}
-			}
-		}
-	}
-	return nil
-}
-
-type agentMessageLogger struct {
-	logger     *zap.Logger
-	agentStore agent.Store
-}
-
-var _ server.RequestDecodeListener = (*agentMessageLogger)(nil)
-var _ server.ResponseEncodeListener = (*agentMessageLogger)(nil)
-
-func (r *agentMessageLogger) OnRequestDecode(ctx context.Context, msg ucan.Container) error {
-	err := r.agentStore.Write(ctx, msg, agent.Index(msg))
-	if err != nil {
-		r.logger.Error("failed to write incoming agent message to store", zap.Error(err))
-		return fmt.Errorf("writing incoming agent message to agent store: %w", err)
-	}
-	return nil
-}
-
-func (r *agentMessageLogger) OnResponseEncode(ctx context.Context, msg ucan.Container) error {
-	err := r.agentStore.Write(ctx, msg, agent.Index(msg))
-	if err != nil {
-		r.logger.Error("failed to write outgoing agent message to store", zap.Error(err))
-		return fmt.Errorf("writing outgoing agent message to agent store: %w", err)
-	}
-	return nil
 }
 
 // HandleUCANRequest handles incoming UCAN RPC requests.

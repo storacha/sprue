@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/errors"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/storacha/go-libstoracha/capabilities/upload/shard"
 	"github.com/storacha/go-ucanto/core/invocation"
@@ -15,7 +16,6 @@ import (
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	upload_store "github.com/storacha/sprue/pkg/store/upload"
 	"go.uber.org/zap"
 )

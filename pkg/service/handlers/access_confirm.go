@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
 	"github.com/storacha/go-libstoracha/capabilities/access"
@@ -21,7 +22,6 @@ import (
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/identity"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/lib/ucans"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"
 )

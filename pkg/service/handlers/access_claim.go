@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alanshaw/libracha/didmailto"
 	"github.com/alanshaw/ucantone/did"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
@@ -19,8 +21,6 @@ import (
 	"github.com/storacha/go-ucanto/validator"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/didmailto"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/lib/ucans"
 	"github.com/storacha/sprue/pkg/store"
 	delegation_store "github.com/storacha/sprue/pkg/store/delegation"

@@ -8,8 +8,8 @@ import (
 
 	"github.com/alanshaw/libracha/capabilities/blob"
 	"github.com/alanshaw/libracha/digestutil"
+	"github.com/alanshaw/ucantone/errors"
 	"github.com/alanshaw/ucantone/ucan"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
 	"go.uber.org/zap"

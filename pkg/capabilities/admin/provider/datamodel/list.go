@@ -5,9 +5,10 @@ import "github.com/alanshaw/ucantone/did"
 type ListArgumentsModel struct{}
 
 type ProviderModel struct {
-	Provider did.DID `cborgen:"provider" dagjsongen:"provider"`
-	Endpoint string  `cborgen:"endpoint" dagjsongen:"endpoint"`
-	Weight   uint64  `cborgen:"weight" dagjsongen:"weight"`
+	Provider          did.DID `cborgen:"provider" dagjsongen:"provider"`
+	Endpoint          string  `cborgen:"endpoint" dagjsongen:"endpoint"`
+	Weight            uint64  `cborgen:"weight" dagjsongen:"weight"`
+	ReplicationWeight uint64  `cborgen:"replicationWeight" dagjsongen:"replicationWeight"`
 }
 
 type ListOKModel struct {

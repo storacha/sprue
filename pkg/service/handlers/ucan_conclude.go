@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/alanshaw/ucantone/errors"
 	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
 	"github.com/storacha/go-ucanto/core/invocation"
@@ -18,7 +19,6 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-	"github.com/storacha/sprue/pkg/lib/errors"
 	"github.com/storacha/sprue/pkg/store/agent"
 	"go.uber.org/zap"
 )
