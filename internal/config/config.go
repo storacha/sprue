@@ -23,6 +23,7 @@ type Config struct {
 	Storage    StorageConfig    `mapstructure:"storage"`
 	Log        LogConfig        `mapstructure:"log"`
 	Mailer     MailerConfig     `mapstructure:"mailer"`
+	MS3T       MS3TConfig       `mapstructure:"ms3t"`
 }
 
 type DeploymentConfig struct {
@@ -146,6 +147,44 @@ type LogConfig struct {
 	Level string `mapstructure:"level"`
 }
 
+// MS3TConfig configures the embedded ms3t S3-compatible HTTP server.
+// When Enabled is false, none of the rest is consulted and no S3
+// listener starts.
+type MS3TConfig struct {
+	// Enabled toggles the S3 listener.
+	Enabled bool `mapstructure:"enabled"`
+	// Addr is the host:port to bind the S3 listener to.
+	Addr string `mapstructure:"addr"`
+	// DataDir is where ms3t persists its log segments, space key, and
+	// any other on-disk state.
+	DataDir string `mapstructure:"data_dir"`
+	// ChunkSize is the body chunk size used for new objects, in bytes.
+	// 0 → ms3t default (1 MiB).
+	ChunkSize int64 `mapstructure:"chunk_size"`
+	// SealBytes is the open-segment size at which the log seals and
+	// sends the segment to the background flusher. 0 → 64 MiB.
+	SealBytes int64 `mapstructure:"seal_bytes"`
+	// SealAge is the maximum time the log will keep an open segment
+	// before sealing it. Drives the seal cadence under low write
+	// volume. 0 → 5s.
+	SealAge string `mapstructure:"seal_age"`
+	// Retain is the number of most-recent sealed segments to keep on
+	// disk after a successful Forge flush. Older flushed segments are
+	// unlinked. Higher values trade disk for read locality. 0 → 6.
+	Retain int `mapstructure:"retain"`
+
+	// Region is the AWS region advertised to S3 clients. Used by the
+	// versitygw protocol layer for sigv4 verification.
+	Region string `mapstructure:"region"`
+	// RootAccess is the access key id of the single-account IAM
+	// root user. Required when Enabled is true.
+	RootAccess string `mapstructure:"root_access"`
+	// RootSecret is the secret access key paired with RootAccess.
+	// Required when Enabled is true. Provide via env
+	// (SPRUE_MS3T_ROOT_SECRET) — do not commit to config files.
+	RootSecret string `mapstructure:"root_secret"`
+}
+
 type MailerConfig struct {
 	// Type specifies the mailer implementation to use (e.g., "postmark", "smtp", "nop").
 	Type string `mapstructure:"type"`
@@ -207,6 +246,16 @@ func SetDefaults(v *viper.Viper) {
 
 	// Log defaults
 	v.SetDefault("log.level", "info")
+
+	// MS3T defaults — disabled by default; sprue is the source of
+	// truth for whether the S3 listener is exposed.
+	v.SetDefault("ms3t.enabled", false)
+	v.SetDefault("ms3t.addr", ":9000")
+	v.SetDefault("ms3t.data_dir", "./ms3t-data")
+	v.SetDefault("ms3t.seal_bytes", 64<<20)
+	v.SetDefault("ms3t.seal_age", "5s")
+	v.SetDefault("ms3t.retain", 6)
+	v.SetDefault("ms3t.region", "us-east-1")
 }
 
 // BindEnvVars sets up environment variable binding with SPRUE_ prefix.

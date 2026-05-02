@@ -108,3 +108,29 @@ storage:
 log:
   # Log level: debug, info, warn, error
   level: "info"
+
+# ms3t — embedded S3-compatible HTTP server backed by an MST. When
+# enabled, sprue exposes an S3 listener alongside its UCAN endpoint;
+# objects are stored as content-addressed blocks in a local SQLite
+# blockstore and (optionally) shipped to a Forge stack via guppy.
+ms3t:
+  enabled: false
+  # host:port for the S3 listener. Path-style addressing only; clients
+  # must set forcePathStyle=true and disable streaming uploads
+  # (request_checksum_calculation=when_required for AWS CLI v2.23+).
+  addr: ":9000"
+  # ms3t persists its log segments and space keypair under this
+  # directory. Created if missing.
+  data_dir: "./ms3t-data"
+  # Body chunk size in bytes for new objects. Default 1 MiB.
+  chunk_size: 1048576
+  # Log: seal the open segment when its on-disk size reaches this
+  # threshold. Default 64 MiB.
+  seal_bytes: 67108864
+  # Log: seal the open segment when it has been open this long, even
+  # if size has not been reached. Default 5s.
+  seal_age: "5s"
+  # Log: number of most-recent sealed segments to keep on disk after
+  # they have been shipped to Forge. Older flushed segments are
+  # unlinked. Higher values trade disk for read locality. Default 6.
+  retain: 6

@@ -9,6 +9,7 @@ import (
 	"github.com/storacha/sprue/internal/fx/store/aws"
 	"github.com/storacha/sprue/internal/fx/store/memory"
 	"github.com/storacha/sprue/internal/fx/store/postgres"
+	"github.com/storacha/sprue/pkg/ms3t"
 	"go.uber.org/fx"
 )
 
@@ -24,6 +25,7 @@ var AppModule = func(cfg *config.Config) fx.Option {
 		service.Module,
 		handlers.Module,
 		ServerModule,
+		ms3t.Module,
 	}
 	switch cfg.Storage.Type {
 	case config.StorageTypeMemory:
