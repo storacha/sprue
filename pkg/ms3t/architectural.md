@@ -1,583 +1,512 @@
-# ms3t — S3 over Forge (MVP / prototype)
+# ms3t — S3 over Forge (current state)
 
-This document describes what the code in `sprue/pkg/ms3t/` actually
-does today, running in smelt with the deployed wiring.
+This document describes the implementation under `sprue/pkg/ms3t/`
+as it stands today. ms3t is an embedded S3 protocol listener that
+runs in-process inside sprue (or, in tests, against an in-memory
+harness) and translates S3 requests into mutations of a per-bucket
+Merkle Search Tree, durably journaled to a local LSM-style log and
+asynchronously shipped to Forge.
 
-It is **not** an architecture spec for a production system. ms3t is a
-prototype for "expose an S3 API on top of the Forge stack." Every
-choice baked into the current shape is up for debate. The job of
-this doc is to give the team enough of a map to read the code, ask
-"why this and not that?", and weigh in on where to go next.
+It is still a prototype: many S3 features are unimplemented (see
+"Not implemented" near the end), and several knobs that future
+production work will tighten are noted as TODOs in code.
 
-If you're looking for what isn't built yet or what was considered
-and dropped, see "Choices we made (and the alternatives)" and
-"Open questions" near the end.
+## At a glance
 
-## What ms3t is
+- **Protocol layer** — `github.com/versity/versitygw`. We get a
+  near-complete S3 REST front end (sigv4, path-style addressing,
+  the standard verb shapes) by implementing versitygw's
+  `backend.Backend` interface.
+- **Backend adapter** — `pkg/ms3t/s3frontend.Backend`. Wires every
+  served verb into ms3t's domain primitives. Anything we haven't
+  implemented inherits `ErrNotImplemented` from versitygw's
+  `backend.BackendUnsupported`.
+- **Per-op transaction** — `pkg/ms3t/bucketop.Tx`. Acquires the
+  per-bucket lock, snapshots the bucket's published Root from the
+  registry, and exposes a per-tx staging buffer + CBOR-typed view
+  over it. On Commit it fsyncs the batch into the log and
+  CAS-advances the registry Root in one shot.
+- **Storage tiers** — an LSM-style local log:
+  - *Hot*  — current open segment (CAR + .ops sidecar) on local
+    disk. AppendBatch fsyncs both files before returning.
+  - *Warm* — sealed segments retained on local disk for fast reads.
+  - *Cold* — segments shipped off-host to Forge (piri CAR + index
+    claim). The layered read tier falls through to Forge on misses.
+- **Persistent metadata** — Postgres, under the `ms3t` schema.
+  Per-bucket Root + per-segment lifecycle live in the same database.
+- **Identity** — ms3t owns its own ed25519 keypair (the *space*) and
+  is the root UCAN authority for self-issued
+  `space/content/retrieve` delegations. Sprue's identity is the
+  audience for piri allocate/accept invocations.
 
-A goroutine inside sprue that:
-
-- Listens on a configured `host:port` and speaks the AWS S3 REST
-  protocol (path-style; subset of operations: bucket CRUD, object
-  PUT/GET/HEAD/DELETE, ListObjectsV2, range GETs)
-- Stores object data as content-addressed CAR files in piri (via
-  sprue's existing piriclient + routing + indexerclient — same
-  packages sprue's own UCAN handlers use)
-- Stores per-bucket "what's the current MST root?" in a small SQLite
-  file alongside sprue
-- Stores its own UCAN identity (a generated did:key) in a file
-  alongside sprue
-
-There is no other persistent state. ms3t holds no canonical block
-data — every block read goes to the network.
-
-## Local state
+## On-disk layout
 
 ```
-<data_dir>/
-├── space.key             # ed25519 keypair, ms3t's UCAN identity / space root
-└── ms3t-registry.db      # SQLite, one row per bucket
+<DataDir>/
+├── space.key                              # ed25519 keypair (UCAN identity)
+└── segments/
+    ├── seg-NNNNNNNNNNNNNNNNNNNN.car       # one CAR per segment
+    ├── seg-NNNNNNNNNNNNNNNNNNNN.ops       # per-batch (bucket, root) records
+    └── seg-NNNNNNNNNNNNNNNNNNNN.idx       # JSON sidecar (sealed only)
 ```
 
-The SQLite schema (`pkg/ms3t/registry/sqlite.go`):
+- `.car` — CAR v1 with a placeholder root in the header. Block
+  frames are appended via `cars.WriteBlocksAt`. Per-batch fsync.
+- `.ops` — append-only sidecar of `[bucket: text, root: bytes]`
+  CBOR records, each prefixed by a 4-byte big-endian length. One
+  record per AppendBatch (one S3 op).
+- `.idx` — written atomically (tmp + rename) at seal time. JSON:
+  `{seq, size_bytes, sha256_hex, sealed_at, blocks: [{cid,
+  offset, length}], op_roots: [{bucket, root}]}`. The post-crash
+  source of truth for sealed segments.
+
+## Postgres schema
+
+Migrations are in `pkg/ms3t/migrations/sql/`, applied via goose
+against the caller-provided `*pgxpool.Pool` at startup. All ms3t
+tables live under the `ms3t` schema; goose's bookkeeping is at
+`ms3t.goose_db_version`, so it never collides with other migrations
+on the same database.
 
 ```sql
-CREATE TABLE buckets (
-    name           TEXT PRIMARY KEY,
-    root_cid       BLOB,           -- current MST root, NULL for empty bucket
-    forge_root_cid BLOB,           -- last root known to be in Forge
-    created_at     INTEGER NOT NULL
+CREATE TABLE ms3t.buckets (
+    name           TEXT     PRIMARY KEY,
+    root_cid       BYTEA,           -- current MST root, NULL for empty bucket
+    forge_root_cid BYTEA,           -- last MST root whose blocks shipped to Forge
+    created_at     BIGINT   NOT NULL
 );
+
+CREATE TABLE ms3t.segments (
+    seq         BIGINT   PRIMARY KEY,
+    state       TEXT     CHECK (state IN ('open','sealed','flushed')),
+    sealed_at   BIGINT,
+    flushed_at  BIGINT,
+    size_bytes  BIGINT   DEFAULT 0,
+    car_sha256  BYTEA
+);
+
+CREATE TABLE ms3t.segment_op_roots (
+    seq         BIGINT,
+    seq_within  INT,
+    bucket      TEXT     NOT NULL,
+    root_cid    BYTEA    NOT NULL,
+    PRIMARY KEY (seq, seq_within),
+    FOREIGN KEY (seq) REFERENCES ms3t.segments(seq) ON DELETE CASCADE
+);
+CREATE INDEX ON ms3t.segment_op_roots (bucket, seq);
+
+CREATE SEQUENCE ms3t.segment_seq;
 ```
 
-`forge_root_cid` is plumbing for a batched-writes mode that isn't
-currently active; in the deployed sync-writes mode it always equals
-`root_cid` after each PUT/DELETE.
+`forge_root_cid` is the per-bucket high-water mark of "what's
+durably in Forge." When the flusher succeeds, it advances
+`forge_root_cid` for every op-root the segment carried in the same
+transaction that flips the segment's state to `flushed`.
 
-## How the data is shaped
+## Per-object data shape
 
-Each S3 object's bytes get chunked into raw IPLD blocks (default 1
-MiB, raw codec, sha256 multihash) and pointed at by an
-`ObjectManifest` (DAG-CBOR):
+Each S3 object is represented by an `ObjectManifest` block whose
+`Body` field describes how the bytes are framed. The Body shape is
+polymorphic via the `Format` string; the only codec today is
+`fixed-v1`.
 
 ```go
 type ObjectManifest struct {
-    Key         string
-    ContentType string
-    Created     int64
-    Body        Body
+    Key         string `cborgen:"k"`
+    ContentType string `cborgen:"ct"`
+    Created     int64  `cborgen:"t"`
+    Body        Body   `cborgen:"b"`
 }
 
 type Body struct {
-    Size      int64
-    ChunkSize int64
-    Chunks    []cid.Cid
-    SHA256    []byte    // for ETag
+    Size    int64   `cborgen:"s"`
+    SHA256  []byte  `cborgen:"h"`     // hex of this is the ETag we serve today
+    Content cid.Cid `cborgen:"c"`     // points at format-specific DAG root
+    Format  string  `cborgen:"f"`
+}
+
+const FormatFixed = "fixed-v1"
+
+type FixedChunkerIndex struct {
+    ChunkSize int64     `cborgen:"cs"`
+    Chunks    []cid.Cid `cborgen:"c"`
 }
 ```
 
-The bucket itself is an MST keyed by S3 key, with leaves pointing at
-manifest CIDs. The "current state" of a bucket is a single CID — the
-MST root — held in the registry.
-
-Every PUT/DELETE produces a new MST root via the
-forked-from-atproto MST in `pkg/ms3t/mst/`, which is content-addressed
-all the way down. The MST itself is fully described in its package
-docs.
-
-## How the data lives in Forge
-
-For every S3 PUT, ms3t produces **one CAR file** containing:
-
-- the new body chunks (raw blocks)
-- the new ObjectManifest
-- the mutated MST nodes (the path from leaf to root)
-
-Plus a small **index blob** (also a CAR) describing where each inner
-block sits within the data CAR, byte-offset-and-length, encoded as a
-`blobindex.ShardedDagIndexView`.
-
-Both blobs are uploaded to piri. The index is registered with the
-indexing-service via `assert/index`. From that point onward, any
-inner CID (an MST node, a manifest, a body chunk) is resolvable via:
-
-1. Indexer query: `multihash → (CAR multihash, byte offset, length)`
-2. Piri ranged GET: read `[offset, offset+length)` of the CAR
-
-The indexer + piri retrieval flow are how reads find anything.
-
-## The PUT flow
-
-```
-S3 client       ms3t              sprue services       piri      indexer
-   │             │                       │              │           │
-   │ PUT k=v     │                       │              │           │
-   ├────────────▶│                       │              │           │
-   │             │ load HEAD root_cid    │              │           │
-   │             │ from registry         │              │           │
-   │             │                       │              │           │
-   │             │ chunk body into       │              │           │
-   │             │ raw blocks (in mem)   │              │           │
-   │             │                       │              │           │
-   │             │ mst.Add(key, mfCid):                 │           │
-   │             │  reads existing nodes via Forge ─────┤           │
-   │             │  ◀─ indexer + ranged piri GETs       │           │
-   │             │  produces new path nodes (in mem)    │           │
-   │             │                                                  │
-   │             │ pack body + manifest + mst nodes into one CAR    │
-   │             │                                                  │
-   │             │ piriclient.Allocate(carHash, carSize)            │
-   │             ├──────────────────────▶│              │           │
-   │             │◀── presigned URL ─────┤              │           │
-   │             │                                                  │
-   │             │ HTTP PUT carBytes ────────────────▶│              │
-   │             │                                                  │
-   │             │ piriclient.Accept                                │
-   │             ├──────────────────────▶│              │           │
-   │             │                                                  │
-   │             │ build ShardedDagIndexView over CAR offsets       │
-   │             │                                                  │
-   │             │ Allocate + PUT + Accept the index blob ──┐       │
-   │             │                                          ▼       │
-   │             │                                                  │
-   │             │ self-issue space/content/retrieve                │
-   │             │   delegation (space → sprue) for the index blob  │
-   │             │                                                  │
-   │             │ indexerclient.PublishIndexClaim ─────────────────▶
-   │             │                                                  │
-   │             │ registry: CAS root_cid old → new                 │
-   │             │                                                  │
-   │ 200 OK + ETag                                                  │
-   │◀────────────┤                                                  │
-```
-
-This is **synchronous**: every step blocks the client's PUT. Three
-piri round trips per PUT (data CAR allocate+PUT+accept, index
-allocate+PUT+accept, then index claim publication). Read-after-write
-is correct because the assert/index has been published before 200 is
-returned.
-
-## The GET flow
-
-```
-S3 client       ms3t              indexer        piri
-   │             │                   │             │
-   │ GET k       │                   │             │
-   ├────────────▶│                   │             │
-   │             │ load HEAD root from registry    │
-   │             │                                 │
-   │             │ for each MST node walked from   │
-   │             │   root toward the leaf:         │
-   │             │   1. indexer query for cid ────▶│
-   │             │   2. self-issue retrieve UCAN   │
-   │             │   3. rclient.Execute on piri ──────────▶│
-   │             │      ◀── block bytes (Range) ─────────┤
-   │             │   4. parse, follow next link            │
-   │             │                                         │
-   │             │ once at the leaf manifest:              │
-   │             │   for each body chunk: same dance       │
-   │             │                                         │
-   │             │ stream reassembled body to client       │
-   │ 200 + bytes │                                         │
-   │◀────────────┤                                         │
-```
-
-Every block read is a network round trip. There is no local cache
-serving any of these reads.
-
-The `rclient.Execute` call wraps the GET with a UCAN auth header
-(`X-Agent-Message`) carrying a `space/content/retrieve` invocation
-chained back to the space root — piri rejects unauthenticated
-retrievals.
-
-## Where the UCAN identity comes from
-
-ms3t generates and persists its own ed25519 keypair on first run.
-That keypair is the **space**: a `did:key` whose private half is in
-`<data_dir>/space.key`. ms3t is the root UCAN authority over its own
-space, which lets it self-issue all the delegations it needs:
-
-- For the indexer: a blanket `space/content/retrieve` with
-  `NoCaveats` so the indexer can fetch any blob in the space when
-  validating an index claim
-- For piri retrievals: a 60-second `space/content/retrieve` proof
-  per Get, attached to a typed retrieve invocation
-- For PublishIndexClaim: a per-call retrieval delegation scoped to
-  the specific index blob
-
-Sprue uses its own identity (`upload.pem` in smelt) for the piri
-allocate/accept invocations and as the audience of ms3t's
-self-issued retrieval delegations. So:
-
-- **Sprue identity**: signs piri-side blob lifecycle invocations
-- **ms3t space keypair**: signs anything that needs to chain back to
-  "the owner of this space"
-
-## Components map
-
-```
-                  ┌────────────────────────┐
-S3 client ──────▶ │ ms3t HTTP listener     │  pkg/ms3t/server/
-                  │ (S3 protocol → service)│
-                  └───────────┬────────────┘
-                              │
-                  ┌───────────┴────────────┐
-                  │ bucket.Service         │  pkg/ms3t/bucket/
-                  │ load HEAD, mutate MST, │
-                  │ build CAR, commit      │
-                  └─────┬───────────┬──────┘
-                        │           │
-       ┌────────────────┘           └─────────────────┐
-       │                                              │
-   ┌───▼─────────────┐                       ┌────────▼────────────┐
-   │ registry.SQL    │                       │ blockstore.Forge    │
-   │ SQLite, HEAD    │                       │ reads via indexer   │
-   │ pointer per     │                       │ + piri rclient.     │
-   │ bucket          │                       │ Put: no-op.         │
-   └─────────────────┘                       └─────────┬───────────┘
-                                                       │
-                  ┌────────────────────────┐           │
-                  │ uploader.Internal      │  ◀────────┘ writes side
-                  │ Submit: encode CAR,    │
-                  │ piriclient + indexer-  │
-                  │ client per call        │
-                  └────────────┬───────────┘
-                               │
-            ┌──────────────────┼──────────────────────┐
-            ▼                  ▼                      ▼
-     ┌──────────┐       ┌──────────┐          ┌────────────────┐
-     │ sprue    │       │ piri     │          │ indexing-      │
-     │ routing  │       │ blob     │          │ service        │
-     │ piriclient       │ store    │          │ assert/index   │
-     └──────────┘       └──────────┘          └────────────────┘
-       (in-process              (HTTP w/ UCAN auth)
-        Go calls)
-```
-
-ms3t calls **sprue's services in-process** (Go function calls into
-`pkg/piriclient`, `pkg/routing`, `pkg/indexerclient`). It does not
-loopback through sprue's HTTP/UCAN handler. sprue's own UCAN
-endpoint and ms3t's S3 endpoint are two unrelated listeners in the
-same process.
-
-## Choices we made (and the alternatives)
-
-These are **prototype decisions**, made to ship something working.
-Each is a place the team should weigh in on whether the choice
-holds up.
-
-### Sync writes, no local block cache
-
-Every PUT blocks on three Forge round trips. Every GET hits the
-network for every block. There is no local SQLite blockstore active
-in this mode.
-
-- **Why we picked this**: forces the read path to actually work
-  end-to-end against real Forge. Closes the read-after-write race
-  by construction. Simplest possible state model: only the registry
-  is mutable.
-- **Why it's awkward**: `aws s3 sync` of many small files is slow.
-  An MST traversal during a PUT pays N network round trips for N
-  existing nodes on the path, even though those nodes are
-  deterministic.
-- **Alternative we have code for**: `Batched(Internal)` uploader +
-  SQLite blockstore as a read-through cache. This is the default
-  when `ms3t.forge.no_cache: false`. Faster, but the
-  `forge_root_cid` machinery has to actually do something — and the
-  read-after-write window opens.
-
-### ms3t owns its space
-
-ms3t generates its own ed25519 keypair and is the root UCAN
-authority over its own space. Self-issues every delegation it needs.
-
-- **Why we picked this**: zero out-of-band provisioning. The first
-  time sprue starts with `forge.enabled`, ms3t writes a key and
-  uses it. No "go ask the delegator for a delegation, paste it
-  here."
-- **Why it's awkward**: ms3t-as-space-root is unusual. In a real
-  multi-tenant deployment this doesn't model what we'd want — each
-  S3 customer would presumably have their own space, with ms3t
-  acting as a tenant-aware orchestrator.
-- **Alternative we considered**: ms3t holds an externally-issued
-  delegation chain into a pre-provisioned space. Better tenant
-  story, requires delegation provisioning machinery.
-
-### One CAR per S3 op (body + structural)
-
-Body chunks ride in the same CAR as the structural blocks. The
-indexer maps inner CIDs to byte ranges within the outer CAR. One
-data-CAR upload + one index-blob upload per PUT.
-
-- **Why we picked this**: matches what guppy does for filesystem
-  uploads — minimum number of piri round trips per PUT. Body
-  retrievals work via ranged GETs against the outer CAR.
-- **Why it's awkward**: rules out direct-passthrough of body bytes
-  (we'd want body chunks as their own piri blobs so a 307 redirect
-  has a stable URL target).
-- **Alternative we considered**: separate piri blobs per body
-  chunk, smaller structural CAR for the MST + manifest. Doubles
-  the per-PUT round trip count but enables passthrough.
-
-### ms3t in the data path
-
-The S3 client uploads body bytes to ms3t; ms3t uploads to piri.
-Same on the read side. ms3t pays the bandwidth.
-
-- **Why we picked this**: the alternative (direct passthrough)
-  needs a Forge feature we don't have — see "Direct passthrough"
-  under future directions.
-- **Why it's awkward**: the operator running sprue + piri pays
-  bandwidth twice (client→sprue, sprue→piri) when conceptually
-  the bytes only need to move once. In a federated model where
-  piri storage is run by different operators, this becomes
-  structurally wrong (sprue's operator pays to deposit bytes onto
-  someone else's hardware).
-
-### Embedded in sprue
-
-ms3t lives at `sprue/pkg/ms3t/` and is wired by sprue's fx graph.
-No deployment artifact distinct from sprue.
-
-- **Why we picked this**: zero auth coordination — ms3t is sprue,
-  it has all sprue's identities and clients in-process. One binary
-  to ship, one config file.
-- **Why it's awkward**: every sprue release ships ms3t, every ms3t
-  change requires a sprue release. Sprue maintainers inherit MST
-  + S3 protocol surface area.
-- **Alternative**: standalone ms3t binary, talks to sprue/piri via
-  external UCAN-over-HTTP. (This exists at
-  github.com/frrist/ms3t — a separate repo that was the original
-  prototype before we copied into sprue.)
-
-### Sticky-bucket routing (assumed but not built)
-
-The current code assumes a single ms3t instance per bucket, via the
-in-process `sync.Mutex` per-bucket lock. There is no cross-instance
-coordination.
-
-- **Why we picked this**: works for a single-process MVP.
-- **What's needed for HA**: either sticky-bucket routing at a load
-  balancer (hash bucket name → ms3t instance) or multi-writer with
-  CAS retry and cache invalidation. Not implemented.
-
-## Operational characteristics observed
-
-These are observations from smelt, not promises:
-
-- `aws s3 cp small.txt s3://demo/k` (small file): a few hundred
-  milliseconds inside the docker network, dominated by the three
-  Forge round trips
-- `aws s3 cp s3://demo/k -` immediately after: works (sync writes
-  close the race)
-- `aws s3 sync` of many small files: visibly slow — each file pays
-  the full Forge round-trip cost serially per S3 PUT
-- `aws s3 ls`: walks MST through the network; cost grows with
-  bucket size
-
-We have not measured anything precisely. These are rough impressions.
-
-## Known limitations
-
-- **Slow.** Sync writes + no read cache. No effort has gone into
-  performance.
-- **No GC.** S3 DELETE removes the leaf from the MST. Body chunks
-  become unreferenced from the current root, but we don't tell
-  Forge to expire them. Storage grows monotonically.
-- **No multipart upload.** S3 client splits files >8 MB into
-  multipart by default; we don't implement it. Operators have to
-  set `multipart_threshold = 5GB` in their AWS profile.
-- **No `aws-chunked` body decoding.** The current AWS CLI default
-  upload format. Operators have to set
-  `request_checksum_calculation = when_required` to disable it.
-- **Single-tenant.** One ms3t = one space.
-- **Single-instance.** No HA story.
-- **Disk and Guppy uploaders are dead code in sprue's wiring.**
-  They exist in `pkg/ms3t/uploader/` for the standalone-ms3t use
-  case; sprue only wires `Internal` (when forge enabled) or `Disk`
-  (when forge disabled, in the cache mode that isn't currently
-  deployed).
-
-## Aligning with the RFCs
-
-There's a parallel design effort for the per-object data layout that
-predates this prototype:
-
-- `shard.rfc` (in this repo) — Forge S3 Facade sharding strategy
-- [storacha/RFC #65](https://github.com/storacha/RFC/pull/65) — Filepack archive format
-- [storacha/RFC #66](https://github.com/storacha/RFC/pull/66) — Virtual DAG in Sharded DAG Index
-
-Together these propose: shard at 256 MB; each shard is a Filepack
-data archive (raw concatenated bytes, no CAR overhead); a UnixFS
-File root links the shards in order; a v0.2 Sharded DAG Index
-inlines that UnixFS root via its new `blocks` property.
-
-The MST-as-bucket idea is **orthogonal to all three RFCs** — they
-address per-object data layout, not how a bucket is structured. So
-the MST work in this PR is independent of whether we adopt the
-RFCs' direction.
-
-The per-object layer of this prototype diverges from the RFCs:
-
-| | RFCs | this PR |
-|---|---|---|
-| shard format | Filepack (raw bytes) | raw IPLD blocks inside one CAR |
-| per-object root | UnixFS File node | `ObjectManifest` (CBOR) |
-| SDI version | v0.2 with inline `blocks` | v0.1 |
-| chunk/shard size | 256 MB | 1 MiB |
-
-Aligning would mean replacing the body fields of `ObjectManifest`
-with a single `cid.Cid` pointing at the UnixFS root, and producing
-Filepack shards instead of raw blocks inside a CAR. The MST
-machinery is unaffected.
-
-### ObjectManifest still has a place under the RFCs
-
-Even after aligning with the RFCs, we'd still want a small per-object
-manifest block:
+The `BodyCodec` interface (`pkg/ms3t/bucket/chunker.go`) is the
+seam:
 
 ```go
-type ObjectManifest struct {
-    Content     cid.Cid   // → UnixFS File root
-    ContentType string    // S3 needs this on GET
-    Created     int64     // S3 needs this for Last-Modified
-    // user metadata, cache-control, etc. as needed
+type BodyWriter interface {
+    Chunk(ctx context.Context, w blockstore.WriteStore, r io.Reader) (Body, error)
 }
+type BodyReader interface {
+    Format() string
+    Open(ctx context.Context, bs blockstore.ReadStore, body Body) io.ReadCloser
+    OpenRange(ctx context.Context, bs blockstore.ReadStore, body Body, start, end int64) io.ReadCloser
+}
+type BodyCodec interface { BodyWriter; BodyReader }
 ```
 
-The S3 protocol metadata (Content-Type, Last-Modified, user
-`x-amz-meta-*` headers) doesn't have a natural home in UnixFS or
-the SDI. UnixFS-Plus extensibility is thin and not well-supported.
-Inlining the manifest as a block in the SDI's `blocks` (alongside
-the UnixFS root) is possible but mixes layers.
+`FixedChunker` reads the body in `ChunkSize`-byte (default 1 MiB)
+segments, writes each as a raw IPLD block, and finishes with a
+`FixedChunkerIndex` CBOR block listing the chunk CIDs in order.
+`Body.Content` points at the index. Reads lazily fetch the index on
+first call and stream chunks; ranged reads translate the absolute
+range into `(chunkIndex, in-chunk-offset)` and skip ahead.
 
-Decision: keep ObjectManifest as a separate CBOR block in the same
-CAR as the MST mutation, with the MST leaf pointing at the manifest
-CID — the same shape we have today. Just smaller, with the body
-fields replaced by a single Content link to the UnixFS root.
+Adding a new codec is a new `BodyCodec` implementation plus a new
+`Format` constant; the Body / Manifest shape stays stable.
 
-If GET latency becomes a real concern, inlining the manifest block
-in the per-object SDI is a one-line change and saves a network hop.
-Defer until needed.
+## Bucket as MST
 
-## Future directions (not implemented)
+The bucket is a Merkle Search Tree (forked from the atproto MST in
+`pkg/ms3t/mst/`, with relaxed key validation) keyed by S3 object
+key. Each leaf points at an ObjectManifest CID. The bucket's
+"current state" is a single MST root CID held at
+`ms3t.buckets.root_cid`.
 
-### Direct passthrough
+Public MST methods used by the backend: `Add`, `Update`, `Delete`,
+`Get`, `GetPointer`, `WalkLeavesFromNocache`. The MST is
+content-addressed all the way down — every mutation produces a new
+root CID. Mutated nodes are written through the staging buffer
+(which feeds the log on Commit) via `tx.Put`/`tx.PutBlock`.
 
-The S3 client uploads body bytes directly to a piri presigned URL
-via 307 redirect; ms3t never sees the bytes. Symmetric on reads.
+## Storage tiers (LSM)
 
-- ms3t becomes purely control-plane
-- Bandwidth shifts to piri's operator (correct in the federated
-  model)
-- Blocked on a Forge feature: piri/sprue must gate the
-  client-visible 200 on an ms3t-side commit hook so ms3t can
-  finalize the MST mutation before the client believes the PUT
-  succeeded. Without this, the PUT-to-MST-commit window is a real
-  race.
+```
+   ┌────────────────────────────────────────────┐
+   │ HOT   open segment                         │
+   │       AppendBatch fsyncs CAR + .ops sidecar│ ◀─┐
+   │       before returning                     │   │
+   └──────────────┬─────────────────────────────┘   │
+                  │                                 │
+        seal-on-bytes  /  seal-on-age               │ reads
+                  │                                 │ fall
+   ┌──────────────▼─────────────────────────────┐   │ through
+   │ WARM  sealed segments on local disk        │   │ here
+   │       .idx sidecar persisted               │   │
+   │       (atomic tmp+rename)                  │ ◀─┤
+   │       MarkSegmentSealed in Postgres        │   │
+   └──────────────┬─────────────────────────────┘   │
+                  │                                 │
+            Flush callback                          │
+                  │                                 │
+   ┌──────────────▼─────────────────────────────┐   │
+   │ COLD  shipped to Forge (piri + indexer)    │   │
+   │       per-bucket forge_root_cid advanced   │ ◀─┤
+   │       retention sweeps after cfg.Retain    │   │
+   └──────────────┬─────────────────────────────┘   │
+                  │                                 │
+            network reads                           │
+                  ▼                                 ▼
+       ┌──────────────────┐               ┌──────────────────┐
+       │ blockstore.Forge │               │ Layered.GetBlock │
+       │ indexer + piri   │               │ open → sealed →  │
+       │ ranged GETs      │               │ Forge fall-through│
+       └──────────────────┘               └──────────────────┘
+```
 
-### Async writes
+The read path (`blockstore.Layered`):
 
-`Batched(Internal)` uploader: ack the PUT after local commit, ship
-to Forge in the background. Faster, but introduces a window where
-PUT-then-immediate-GET fails until the batch flushes. Code already
-exists; it's the default mode when `no_cache: false`. We just don't
-run with it.
+1. Open segment's in-memory index (CIDs from blocks just appended).
+2. Sealed segments on local disk, newest-first by seq.
+3. Forge — only reached on local miss. `blockstore.Forge` queries
+   the indexer for the block's `(CAR multihash, offset, length)`,
+   self-issues a scoped retrieval delegation, and does a ranged
+   GET against piri.
 
-### Read-through cache
+The write path (per S3 op):
 
-SQLite blockstore populated on writes, consulted before falling
-through to Forge. Order-of-magnitude speedup on hot reads at the
-cost of cache invalidation complexity (when does ms3t know its
-cached version is stale? Probably "never on its own" — would need
-inputs from sprue's existing replay/invalidation mechanisms.).
+1. `bucketop.Coordinator.Begin(bucket)` — clones the bucket name
+   (defends against fiber's recycled request buffer), acquires the
+   per-bucket lock, snapshots the bucket's State from the registry.
+2. `BodyCodec.Chunk(ctx, tx, body)` — writes body chunks +
+   FixedChunkerIndex through `tx.PutBlock`/`tx.Put` (which buffer
+   in `OpStaging`).
+3. `tx.Put(manifest)` — writes the ObjectManifest block.
+4. `t.Add(key, mfCid)` (or Update / Delete) → `t.GetPointer(tx)` —
+   serializes the new MST nodes through the same staging buffer,
+   returns the new root CID.
+5. `tx.Commit(newRoot)`:
+   - `staging.Commit` calls `log.AppendBatch(blocks, OpRoot{bucket,
+     root})`. Segment.append fsyncs CAR + .ops before returning.
+   - `reg.CASRoot(bucket, expect, next)` advances the bucket Root
+     in Postgres.
+   - Releases the per-bucket lock.
+6. Return 200 to the client.
 
-### Multi-tenant
+The flush path (background goroutine in `logstore.Store`):
 
-One ms3t serving N S3 customers, each in their own space. Requires
-either:
-- Per-tenant space delegations imported into ms3t (provisioning
-  machinery), or
-- ms3t generating + tracking per-tenant spaces, with some external
-  authority for tenant identity
+1. Pick a sealed segment off the queue.
+2. Build a `uploader.CARSource` from segment metadata
+   (`{Path, Size, SHA256, Positions}` — every field already on the
+   segment, no rescan).
+3. `uploader.Forge.SubmitCAR`:
+   - Allocate + HTTP PUT (streaming straight from `CARSource.Path`)
+     + Accept the data CAR via a piri selected by routing.
+   - Build a `ShardedDagIndexView` from `CARSource.Positions`,
+     archive it, allocate + PUT + Accept the index blob.
+   - Self-issue a `space/content/retrieve` delegation scoped to the
+     index blob.
+   - Publish the index claim against the indexing-service.
+4. `meta.MarkSegmentFlushed(seq, flushedAt, opRoots)` in one
+   Postgres transaction — flips state to `flushed`, writes
+   `flushed_at`, advances `forge_root_cid` for every op-root the
+   segment carried.
+5. Retention: if there are more than `Retain` flushed segments on
+   disk, retire the oldest (close fds, unlink files, delete the
+   Postgres row).
 
-### Multi-instance
+The default seal triggers (set in `pkg/ms3t/logstore/config.go`)
+are 64 MiB or 5s; both can be overridden via `ServerConfig`.
 
-Either sticky-bucket routing at a load balancer (bucket name → ms3t
-instance via consistent hash) or proper multi-writer with CAS retry
-+ cache invalidation. Both unbuilt.
+## Module map
 
-### Multipart upload + aws-chunked
+```
+pkg/ms3t/
+├── server.go                — Server, ServerConfig, ServerDeps, New, newFlushFunc
+├── module.go                — fx Module + registerLifecycle (production wiring)
+├── util.go                  — LoadOrCreateSigner (space.key)
+│
+├── s3frontend/              — versitygw backend.Backend implementation
+│   ├── backend.go           — Backend, Recover (no-op), Drain (Coordinator.Close)
+│   ├── bucket.go            — bucket-level handlers + ACL/policy/lock/versioning stubs
+│   └── object.go            — object-level handlers + listWalk + lookupManifest
+│
+├── bucketop/                — per-bucket write transaction primitive
+│   └── bucketop.go          — Coordinator, Tx, WithTx, WithLock, MutateFn
+│
+├── blockstore/              — read/write contracts + impls + Log seam
+│   ├── store.go             — Reader, Writer, Store, BlockReader/Writer, etc.
+│   ├── log.go               — Log interface, OpRoot, BlockLoc
+│   ├── staging.go           — OpStaging (per-op buffer)
+│   ├── layered.go           — Layered (composite read tier)
+│   └── forge.go             — Forge (network base reader; no writes)
+│
+├── logstore/                — LSM-style segment-based log
+│   ├── store.go             — Store, Open, AppendBatch, Get, Close
+│   ├── segment.go           — Segment lifecycle + on-disk format
+│   ├── recovery.go          — startup reconciliation
+│   ├── config.go            — Config (Dir/SealBytes/SealAge/Retain/Flush/Meta)
+│   └── types.go             — Meta interface, SegmentMeta, State
+│
+├── uploader/                — ship sealed segment to Forge
+│   └── forge.go             — Uploader interface, CARSource, Forge.SubmitCAR
+│
+├── registry/                — Postgres-backed bucket and segment metadata
+│   ├── registry.go          — Registry interface + State
+│   ├── postgres.go          — Postgres bucket methods
+│   └── segments.go          — Postgres methods satisfying logstore.Meta
+│
+├── bucket/                  — per-object data model + body codec
+│   ├── manifest.go          — ObjectManifest, Body, FormatFixed, FixedChunkerIndex
+│   ├── chunker.go           — BodyWriter / BodyReader / BodyCodec / FixedChunker
+│   └── cbor_gen.go          — generated by gen/
+│
+├── mst/                     — atproto fork (relaxed key validation)
+│
+├── cars/                    — CAR encoding / scanning helpers
+│   ├── encoder.go
+│   └── reader.go
+│
+├── migrations/              — goose-applied SQL embed
+│   └── sql/{00001_init,00002_segments}.sql
+│
+├── testing/                 — smoke harness + curated suite tests
+│   ├── harness.go           — StartHarness + in-memory deps fakes
+│   ├── integration.go       — Run/RunT, upstream Suite values
+│   ├── smoke_test.go        — TestSmoke_* / TestSmokeXFail_* tables
+│   ├── harness_test.go      — TestHarnessLifecycle
+│   └── listbuckets_test.go  — TestListBucketsNamesStable (regression)
+│
+└── gen/                     — cborgen for bucket/cbor_gen.go
+```
 
-Real S3 compatibility. Both are well-defined extensions of the
-current per-PUT model — multipart effectively becomes "many
-UploadPart calls accumulate body chunks; CompleteMultipartUpload
-fires the MST mutation."
+## Interfaces and seams
 
-### GC
+| Contract | Production impl | Test impl |
+|---|---|---|
+| `versitygw/backend.Backend` | `s3frontend.Backend` | (same; harness boots the full server) |
+| `blockstore.Log` | `logstore.Store` | (same) |
+| `blockstore.BlockReader` | `blockstore.Forge` | `testing.nopBaseReader` |
+| `registry.Registry` + `logstore.Meta` | `*registry.Postgres` (one struct, both interfaces) | `testing.memStore` (one struct, both) |
+| `uploader.Uploader` | `uploader.Forge` | `testing.nopUploader` |
+| `bucket.BodyCodec` | `*bucket.FixedChunker` | (same) |
 
-Walk reachable from current HEAD (and any retained snapshots), mark
-those CIDs, ask Forge to expire the rest. Forge would need to grow
-an `assert/expire`-style claim, and we'd need a retention policy.
+`s3frontend.Backend` is constructed with `(reg, rs, log, codec)` —
+note that the read seam is a `blockstore.ReadStore` (no Put method),
+so write paths can't accidentally route through it. Writes go via
+`bucketop.Tx` which exposes the staging buffer behind the same
+`Reader`/`Writer`/`BlockReader`/`BlockWriter` interfaces.
 
-## Open questions for the team
+## Lifecycle: Server.New → Start → Stop
 
-1. **Sync vs batched writes for MVP**: is `aws s3 sync` slowness
-   acceptable for now, or should we wire `Batched` and accept the
-   read-after-write window?
+`pkg/ms3t/server.go::New(ctx, cfg, deps)`:
 
-2. **Tenant model**: when we want N S3 customers, do they share
-   ms3t's space or each get their own? The latter implies a
-   provisioning step we currently avoid.
+1. Validate inputs (`Addr`, `DataDir`, `RootAccess/RootSecret`, all
+   `ServerDeps` fields present).
+2. Apply defaults (`Region` → `us-east-1`, `ChunkSize` →
+   `bucket.DefaultChunkSize` = 1 MiB, `MaxConnections` /
+   `MaxRequests` → 4096).
+3. Build a `logstore.FlushFunc` closure capturing the uploader +
+   meta — this is what runs per sealed segment off the flush
+   goroutine.
+4. `logstore.Open(...)` — runs recovery (see next section), starts
+   the flush + seal-ticker goroutines.
+5. Construct `blockstore.NewLayered(log, deps.BaseBlockReader)`.
+6. Construct `s3frontend.New(deps.Registry, layered, log, codec)`.
+7. Build the versitygw `s3api.S3ApiServer` with single-account IAM,
+   no audit/event sinks, generous concurrency limits.
 
-3. **Where should ms3t actually run?** Embedded in sprue is what
-   we have. Standalone ms3t-with-Guppy works too (the original
-   prototype). Embedded-in-piri was discussed and rejected. Are
-   there scenarios where standalone matters more than we've
-   assumed?
+`Start`: calls `Backend.Recover` (a no-op today; the LSM already
+recovered in `logstore.Open`) and spawns the listener goroutine
+(`s3api.ServeMultiPort`).
 
-4. **Direct passthrough's commit-hook feature**: is this on
-   anyone's roadmap? It's the lever for federated topologies. If
-   not, the "ms3t in the data path" choice becomes load-bearing
-   for any deployment beyond a single operator.
+`Stop`: shuts the listener down and calls `Backend.Drain`, which
+calls `Coordinator.Close` → `Log.Close` (force-seal the open
+segment, drain the flush queue). Returns the joined error of both
+steps.
 
-5. **Server-side concat for large GETs**: a multi-chunk body has
-   no clean direct-passthrough path because there's no single URL
-   to redirect to. Either large-object reads always go through
-   ms3t (current behavior), or piri grows a "stream this ordered
-   list of multihashes as one body" capability.
+## Recovery on startup
 
-6. **MST for buckets, registry for buckets**: the registry
-   (bucket → root CID) is itself a `string → CID` map. We could
-   make it an MST too, store the registry MST in Forge, and have
-   only one mutable pointer (the registry MST root). Discussed
-   earlier; rejected for now because the registry needs SQL-style
-   transactional CAS that Forge doesn't provide.
+`logstore.Open` runs full reconciliation between disk and Postgres
+before accepting writes:
 
-7. **Should the standalone ms3t repo at github.com/frrist/ms3t
-   continue to exist?** It has the same code (modulo imports) and
-   no consumer. The Disk and Guppy uploaders only make sense
-   there.
+1. Scan `<DataDir>/segments/` for `.car` files.
+2. Query `Meta.ListUnflushedSegments()` for open/sealed rows.
+3. Reconcile by `seq`:
+   - **File + DB open** → rebuild as open via `cars.ScanFile` +
+     `readAllOps`. Force-seal at startup; we never resume an open
+     segment from a previous process.
+   - **File + DB sealed** → load from `.idx`, re-enqueue for flush.
+   - **File + .idx, no DB row** → rehydrate the DB row (the .idx is
+     authoritative for sealed state), keep for retention.
+   - **File only (no .idx, orphan from a torn seal)** → rebuild as
+     open, seed DB, force-seal.
+   - **DB row, no file** → log error, delete the DB row.
+4. Sealed segments are placed at the head of the read fall-through
+   list (newest-first by seq) so reads find recent writes first.
+
+## Identity / Forge wiring
+
+ms3t generates and persists its own ed25519 keypair on first run at
+`<DataDir>/space.key`. That keypair is the **space**: a `did:key`
+whose ms3t is the root UCAN authority over.
+
+| Identity | Used for |
+|---|---|
+| ms3t's space signer | self-issuing `space/content/retrieve` delegations (read path, indexer claim publication, piri retrievals) |
+| sprue's identity | piri allocate/accept invocations, audience of ms3t's self-issued retrieval delegations |
+
+Sprue is the audience for those delegations because `uploader.Forge`
+talks to piri *as sprue*. ms3t-as-space-root keeps zero-out-of-band
+provisioning at the cost of a not-very-multi-tenant story; that's a
+tradeoff to revisit if/when ms3t serves more than one customer.
+
+## Testing surface
+
+- **`pkg/ms3t/testing/harness.go`** — `StartHarness(ctx, opts...)`
+  boots a real `*ms3t.Server` on a random `127.0.0.1` port with
+  in-memory deps (`memStore` for Registry+Meta, `nopBaseReader` for
+  the Layered base, `nopUploader` so flush is a no-op). Options:
+  `WithLogger`, `WithRegion`, `WithCredentials`, `WithChunkSize`,
+  `WithSealConfig`, `WithReadyTimeout`. Each call gets its own
+  scratch tempdir; cleanup is registered against the test's `t`.
+- **`pkg/ms3t/testing/integration.go`** — wraps versitygw's upstream
+  `tests/integration` package. `Run(ctx, c, suite) Result` snapshots
+  versitygw's package-level pass/fail counters before/after and
+  returns the delta; `RunT(t, c, suite) Result` drives `Run` and
+  reports failures via `t.Errorf`. Curated `Suite` constants:
+  `Smoke`, `CRUD`, `Multipart`, `Tagging`, `ObjectLock`,
+  `Versioning`, `Auth`, `Full`.
+- **`pkg/ms3t/testing/smoke_test.go`** — one top-level `Test` per S3
+  group (`TestSmoke_CreateBucket`, `TestSmoke_PutObject`, …) plus
+  matching `TestSmokeXFail_*` for cases ms3t fails today. Each test
+  is a table-driven Go test (so GoLand renders one play-icon per
+  row). XFail tests treat per-case failures as `t.Skip` and only
+  fail if a case unexpectedly passes — that's the cue to promote
+  the row to the matching `TestSmoke_*`.
+
+Today: **66 cases** pass via `TestSmoke_*`, **53 cases** are tracked
+as known-failing via `TestSmokeXFail_*` (total 119, matching the
+upstream Smoke set).
+
+## Not implemented
+
+- **Multipart upload.** Per project decision, multipart in-flight
+  state will live in service-side storage, NOT folded into the MST.
+  Out of scope today.
+- **ACLs, bucket policy, object lock, versioning, tagging.** The
+  always-called middleware methods (`GetBucketAcl`,
+  `GetBucketPolicy`, `GetObjectLockConfiguration`,
+  `GetBucketVersioning`) return polite empty / "not configured"
+  responses so PUT/GET don't trip on `ErrNotImplemented`. The
+  full surface is unimplemented.
+- **Standard ETag.** S3 uses `md5(body)` hex for single-part PUTs
+  (and a different format for multipart). ms3t currently returns
+  `sha256(body)` hex. Adding md5 tracking to the `Body` record is
+  the agreed fix; tracked under the `PutObject_success` smoke case.
+- **User metadata round-trip** (`x-amz-meta-*`,
+  `Content-Disposition`, etc.). `ObjectManifest` doesn't carry a
+  user-metadata map yet. Tracked under `PutObject_with_metadata` /
+  `HeadObject_success` smoke cases.
+- **Range support on HeadObject.** GetObject honors `Range`;
+  HeadObject doesn't.
+- **Conditional reads/writes** (`If-Match`, `If-None-Match`).
+- **Server-side checksum surface** (CRC64NVME, etc.). The body's
+  sha256 is computed, but we don't surface checksum response
+  headers in `x-amz-checksum-*` form, and we don't validate
+  client-supplied checksums.
+- **GC of unreferenced bodies.** `forge_root_cid` is a high-water
+  mark — anything reachable from `root_cid` but not from
+  `forge_root_cid` is "in flight" — but there's no expiry path to
+  Forge yet, so storage grows monotonically.
+- **Multi-tenancy.** ms3t is the space owner; one instance ↔ one
+  space.
+- **Multi-instance / HA.** The per-bucket lock is in-process. A
+  multi-writer story would need cross-process coordination.
+
+## Known TODOs in code
+
+- `pkg/ms3t/blockstore/staging.go` — `OpStaging` buffers an entire
+  S3 op's blocks in memory until Commit. For multi-GB PUTs this
+  bounds peak memory at ≈ payload size. A file-backed alternative
+  (CAR-shaped temp file + `cid → (offset, length)` index) would
+  cap the per-tx footprint at one chunk + index. The interface is
+  unchanged; only the storage backend would swap.
+- `pkg/ms3t/registry/segments.go` — orphan `forge_root_cid` if
+  `staging.Commit` succeeds but `reg.CASRoot` fails afterwards.
+  Proposed fix: conditional `UPDATE … AND root_cid = $newRoot` in
+  the per-op-root advance, so flush only advances `forge_root_cid`
+  for buckets whose Root we actually recorded.
 
 ## Reading the code
 
-If you're new to ms3t and want to follow a request through:
+If you're new and want to follow a request through:
 
-- **PUT**: `pkg/ms3t/server/handlers.go::putObject` →
-  `bucket.Service.PutObject` (in `pkg/ms3t/bucket/bucket.go`) →
-  `chunker.putBody` → `mst.Add` → `CARBuffer.Commit` →
-  `uploader.Internal.Submit` (in `pkg/ms3t/uploader/internal.go`)
-  → registry CAS
-
-- **GET**: `pkg/ms3t/server/handlers.go::getObject` →
-  `bucket.Service.GetObject` → `mst.Get` (every node fetched via
-  `blockstore.Forge.Get` in `pkg/ms3t/blockstore/forge.go`) →
-  manifest decoded → body chunks fetched the same way → streamed
-  to client
-
-- **Where things plug into sprue**: `internal/fx/ms3t.go`. This is
-  the only sprue-side file that knows about ms3t.
-
-- **The MST itself**: `pkg/ms3t/mst/`. This is a fork of the
-  atproto MST with relaxed key validation. Standalone, no
-  dependencies on the rest of ms3t.
+- **PUT**: `s3frontend.Backend.PutObject` (object.go) →
+  `bucketop.Coordinator.WithTx` (bucketop.go) →
+  `bucket.FixedChunker.Chunk` (chunker.go) →
+  `mst.MerkleSearchTree.Add` + `GetPointer` → `Tx.Commit` →
+  `OpStaging.Commit` → `logstore.Store.AppendBatch` →
+  `Segment.append` (fsyncs) → `registry.Postgres.CASRoot` → 200 OK.
+- **GET**: `s3frontend.Backend.GetObject` (object.go) →
+  `lookupManifest` (registry → MST.Get over Layered → manifest
+  decode) → `FixedChunker.Open[Range]` over Layered → stream to
+  client. Every miss past the open segment falls through to sealed
+  segments and finally to `blockstore.Forge` (indexer + piri).
+- **Flush**: `logstore.Store.flushLoop` → `cfg.Flush` (which is
+  `newFlushFunc` from `server.go`) → builds `CARSource` from
+  `Segment.{CARPath, Size, SHA256, BlockPositions}` →
+  `uploader.Forge.SubmitCAR` (allocate + PUT + accept + index +
+  claim) → `meta.MarkSegmentFlushed`.
+- **Recovery**: `logstore.recovery.go` reconciles
+  `<DataDir>/segments/` against `Meta.ListUnflushedSegments`.
+- **Where ms3t plugs into sprue**: `pkg/ms3t/module.go::Module` is
+  the only fx-aware file. `registerLifecycle` builds the
+  production-only collaborators (Forge reader, Postgres registry,
+  Forge uploader, space signer, migrations) and hands them to
+  `New` from `server.go`.
+- **The MST itself**: `pkg/ms3t/mst/`. Standalone fork of the
+  atproto MST with relaxed key validation; no other ms3t deps.
