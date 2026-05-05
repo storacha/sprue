@@ -52,7 +52,7 @@ func WithSpaceBlobAddMethod(id *identity.Identity, router *routing.Service, node
 	)
 }
 
-func SpaceBlobAddHandler(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[spaceblobcap.AddCaveats, spaceblobcap.AddOk, failure.IPLDBuilderFailure] {
+func BlobAddHandler(id *identity.Identity, router *routing.Service, nodeProvider piriclient.Provider, agentStore agent.Store, blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[spaceblobcap.AddCaveats, spaceblobcap.AddOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", spaceblobcap.AddAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[spaceblobcap.AddCaveats],

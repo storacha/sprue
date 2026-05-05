@@ -8,7 +8,9 @@ import (
 	"slices"
 
 	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ipld"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/result"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan"
@@ -21,7 +23,6 @@ import (
 	"github.com/storacha/go-ucanto/core/message"
 	"github.com/storacha/go-ucanto/core/receipt"
 	"github.com/storacha/sprue/pkg/identity"
-	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/lib/ucan_server"
 	"github.com/storacha/sprue/pkg/service/handlers"
 	"github.com/storacha/sprue/pkg/service/ui"
@@ -35,44 +36,45 @@ type Service struct {
 	identity        *identity.Identity
 	agentStore      agent.Store
 	delegationStore delegation_store.Store
-	indexerClient   *indexerclient.Client
 	logger          *zap.Logger
 	ucanServer      *server.HTTPServer
-	options         []server.HTTPOption
+}
+
+type Handler struct {
+	Capability validator.Capability
+	Handler    execution.HandlerFunc
 }
 
 // New creates a new Service instance.
-func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, indexerClient *indexerclient.Client, logger *zap.Logger, options ...server.HTTPOption) (*Service, error) {
-	svc := &Service{
+func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, handlers []Handler, logger *zap.Logger, options ...server.HTTPOption) *Service {
+	return &Service{
 		identity:        id,
 		agentStore:      agentStore,
 		delegationStore: delegationStore,
-		indexerClient:   indexerClient,
 		logger:          logger,
-		options:         options,
+		ucanServer:      createUCANServer(id.Signer, agentStore, handlers, logger, options...),
 	}
-
-	// Create UCAN server with handlers
-	svc.ucanServer = svc.createUCANServer()
-
-	return svc, nil
 }
 
 // createUCANServer creates the UCAN RPC server with registered handlers.
-func (s *Service) createUCANServer() *server.HTTPServer {
-	options := append(
-		slices.Clone(s.options),
+func createUCANServer(id principal.Signer, agentStore agent.Store, handlers []Handler, logger *zap.Logger, options ...server.HTTPOption) *server.HTTPServer {
+	options = append(
+		slices.Clone(options),
 		server.WithReceiptTimestamps(true),
-		server.WithEventListener(ucan_server.AgentMessageLogger{Logger: s.logger, AgentStore: s.agentStore}),
-		server.WithEventListener(ucan_server.ErrorHandler{Logger: s.logger}),
+		server.WithEventListener(ucan_server.AgentMessageLogger{Logger: logger, AgentStore: agentStore}),
+		server.WithEventListener(ucan_server.ErrorHandler{Logger: logger}),
 		server.WithValidationOptions(
 			validator.WithPrincipalParser(ucan_server.PrincipalParser),
 			validator.WithNonStandardSignatureVerifier(
-				ucan_server.NewAttestationVerifier(s.identity.Signer.Verifier()),
+				ucan_server.NewAttestationVerifier(id.Verifier()),
 			),
 		),
 	)
-	return server.NewHTTP(s.identity.Signer, options...)
+	srv := server.NewHTTP(id, options...)
+	for _, h := range handlers {
+		srv.Handle(h.Capability, h.Handler)
+	}
+	return srv
 }
 
 // HandleUCANRequest handles incoming UCAN RPC requests.

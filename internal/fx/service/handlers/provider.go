@@ -10,68 +10,64 @@ import (
 var Module = fx.Module("service-handlers",
 	fx.Provide(
 		fx.Annotate(
-			handlers.WithAccessAuthorizeMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.AccessAuthorizeHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithAccessClaimMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.AccessClaimHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithAccessDelegateMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.AccessDelegateHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithAdminProviderDeregisterMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.AdminProviderDeregisterHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithAdminProviderListMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.AdminProviderListHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithAdminProviderRegisterMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.AdminProviderRegisterHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithAdminProviderWeightSetMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.AdminProviderWeightSetHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithFilecoinOfferMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.ProviderAddHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithProviderAddMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.BlobAddHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithSpaceBlobAddMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.BlobReplicateHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithSpaceBlobReplicateMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.IndexAddHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithSpaceIndexAddMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.UCANConcludeHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithUCANConcludeMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.UploadAddHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithUploadAddMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.UploadListHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.WithUploadListMethod,
-			fx.ResultTags(`group:"ucan_options"`),
-		),
-		fx.Annotate(
-			handlers.WithUploadShardListMethod,
-			fx.ResultTags(`group:"ucan_options"`),
+			handlers.UploadShardListHandler,
+			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
 			handlers.NewHTTPPutConcludeHandler,

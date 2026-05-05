@@ -72,7 +72,7 @@ func WithSpaceIndexAddMethod(provisioningSvc *provisioning.Service, blobRegistry
 	)
 }
 
-func SpaceIndexAddHandler(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Store, indexerClient *indexerclient.Client, logger *zap.Logger) server.HandlerFunc[spaceindexcap.AddCaveats, spaceindexcap.AddOk, failure.IPLDBuilderFailure] {
+func IndexAddHandler(provisioningSvc *provisioning.Service, blobRegistry blobregistry.Store, indexerClient *indexerclient.Client, logger *zap.Logger) server.HandlerFunc[spaceindexcap.AddCaveats, spaceindexcap.AddOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", spaceindexcap.AddAbility))
 	return func(ctx context.Context,
 		cap ucan.Capability[spaceindexcap.AddCaveats],

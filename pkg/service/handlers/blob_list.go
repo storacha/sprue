@@ -27,7 +27,7 @@ func WithSpaceBlobListMethod(blobRegistry blobregistry.Store, logger *zap.Logger
 	)
 }
 
-func SpaceBlobListHandler(blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure] {
+func BlobListHandler(blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure] {
 	log := logger.With(zap.String("handler", blob.ListAbility))
 	return server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure](
 		func(ctx context.Context,

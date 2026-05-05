@@ -76,7 +76,7 @@ func WithSpaceBlobReplicateMethod(
 	)
 }
 
-func SpaceBlobReplicateHandler(
+func BlobReplicateHandler(
 	cfg config.DeploymentConfig,
 	id *identity.Identity,
 	router *routing.Service,

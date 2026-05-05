@@ -8,16 +8,17 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/server"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/receipt/fx"
 	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/sprue/pkg/capabilities/admin/provider"
 	"github.com/storacha/sprue/pkg/identity"
+	"github.com/storacha/sprue/pkg/service"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
 )
 
@@ -27,7 +28,7 @@ var (
 )
 
 // WithAdminProviderRegisterMethod registers the admin/provider/register handler.
-func WithAdminProviderRegisterMethod(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) server.Option {
+func WithAdminProviderRegisterMethod(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) server.HTTPOption {
 	return server.WithServiceMethod(
 		provider.RegisterAbility,
 		server.Provide(
@@ -37,8 +38,8 @@ func WithAdminProviderRegisterMethod(id *identity.Identity, providerStore storag
 	)
 }
 
-func AdminProviderRegisterHandler(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) server.HandlerFunc[provider.RegisterCaveats, provider.RegisterOk, failure.IPLDBuilderFailure] {
-	log := logger.With(zap.String("handler", provider.RegisterAbility))
+func AdminProviderRegisterHandler(id *identity.Identity, providerStore storageprovider.Store, logger *zap.Logger) service.Handler {
+	log := logger.With(zap.String("handler", provider.RegisterCommand))
 	return func(ctx context.Context,
 		cap ucan.Capability[provider.RegisterCaveats],
 		inv invocation.Invocation,
