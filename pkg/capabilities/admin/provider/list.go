@@ -1,7 +1,7 @@
 package provider
 
 import (
-	"github.com/alanshaw/ucantone/validator/bindcap"
+	"github.com/fil-forge/ucantone/validator/bindcap"
 	pdm "github.com/storacha/sprue/pkg/capabilities/admin/provider/datamodel"
 )
 

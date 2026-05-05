@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alanshaw/ucantone/did"
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/errors"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/storacha/go-libstoracha/capabilities/upload"
 	"github.com/storacha/go-ucanto/core/invocation"

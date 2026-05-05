@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/storacha/go-libstoracha/capabilities/blob"
 	"github.com/storacha/go-libstoracha/capabilities/http"
 	"github.com/storacha/go-libstoracha/capabilities/ucan"

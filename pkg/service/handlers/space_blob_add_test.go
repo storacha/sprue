@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/alanshaw/libracha/didmailto"
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/did"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
 	spaceblobcap "github.com/storacha/go-libstoracha/capabilities/space/blob"

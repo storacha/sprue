@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/alanshaw/libracha/didmailto"
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/result"

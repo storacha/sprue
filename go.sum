@@ -49,10 +49,6 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/alanshaw/dag-json-gen v0.0.4 h1:qoryz04TVH6zu16NRFnzgolzQGaPfTvoIawv/F5rDoY=
 github.com/alanshaw/dag-json-gen v0.0.4/go.mod h1:rXxWw0SItP9QjxpRMpkju66h0KumF7TPCtvHdOKS5lY=
-github.com/alanshaw/libracha v0.0.0-20260501102906-edcbd83e00f1 h1:rQOE8YHgHVxIIdtGTSPTy3WDbNSAVFORV7W73LyTtK8=
-github.com/alanshaw/libracha v0.0.0-20260501102906-edcbd83e00f1/go.mod h1:cT4b08Bm24obTZV4I/8Q6agiPRSb/pvF+KlCqYDGf5M=
-github.com/alanshaw/ucantone v0.0.0-20260501085633-eb9e1ef08c80 h1:whG7MrjopUsoGI9t2KFRwIDzlwsdexkzBxZ3oOjU3yM=
-github.com/alanshaw/ucantone v0.0.0-20260501085633-eb9e1ef08c80/go.mod h1:+WvC/G0gAARvMukHG0/OT8S0BsuJ4yCDHYtsTJDY/y4=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
 github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=
 github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da/go.mod h1:Q73ZrmVTwzkszR9V5SSuryQ31EELlFMUz1kKyl939pY=
@@ -173,6 +169,10 @@ github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
+github.com/fil-forge/libforge v0.0.0-20260505091751-785ac80c1baf h1:8AJGO3m31kKjFNvSs1E1D4rmemgID6Ex8PQ/i8Gag1g=
+github.com/fil-forge/libforge v0.0.0-20260505091751-785ac80c1baf/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
+github.com/fil-forge/ucantone v0.0.0-20260505093517-ce9dd71dcbcb h1:8hFbWsOT3v8Pi7bx6iz0veoYOhh7eGpAPs1UcqMGOls=
+github.com/fil-forge/ucantone v0.0.0-20260505093517-ce9dd71dcbcb/go.mod h1:vqgVEsy6LEEsY24Zyjxem0vSofj1XTIx29GbV635f+I=
 github.com/filecoin-project/go-data-segment v0.0.1 h1:1wmDxOG4ubWQm3ZC1XI5nCon5qgSq7Ra3Rb6Dbu10Gs=
 github.com/filecoin-project/go-data-segment v0.0.1/go.mod h1:H0/NKbsRxmRFBcLibmABv+yFNHdmtl5AyplYLnb0Zv4=
 github.com/filecoin-project/go-fil-commcid v0.2.0 h1:B+5UX8XGgdg/XsdUpST4pEBviKkFOw+Fvl2bLhSKGpI=

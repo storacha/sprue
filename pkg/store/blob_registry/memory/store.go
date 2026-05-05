@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alanshaw/libracha/capabilities/blob"
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/ucantone/did"
 	cid "github.com/ipfs/go-cid"
 	multihash "github.com/multiformats/go-multihash"
 	"github.com/storacha/sprue/pkg/store"

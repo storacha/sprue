@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/alanshaw/libracha/didmailto"
+	"github.com/fil-forge/libforge/didmailto"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	blobcap "github.com/storacha/go-libstoracha/capabilities/blob"
 	httpcap "github.com/storacha/go-libstoracha/capabilities/http"

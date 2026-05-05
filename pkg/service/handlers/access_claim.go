@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alanshaw/libracha/didmailto"
-	"github.com/alanshaw/ucantone/did"
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"

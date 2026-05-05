@@ -3,8 +3,8 @@ package delegation
 import (
 	"context"
 
-	"github.com/alanshaw/ucantone/did"
-	"github.com/alanshaw/ucantone/ucan"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/sprue/pkg/store"
 )

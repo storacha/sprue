@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/alanshaw/ucantone/ucan"
+import "github.com/fil-forge/ucantone/ucan"
 
 func Index(message ucan.Container) []IndexEntry {
 	var entries []IndexEntry

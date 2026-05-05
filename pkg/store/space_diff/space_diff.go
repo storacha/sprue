@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/sprue/pkg/store"
 )

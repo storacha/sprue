@@ -4,8 +4,6 @@ go 1.25.3
 
 require (
 	github.com/alanshaw/dag-json-gen v0.0.4
-	github.com/alanshaw/libracha v0.0.0-20260501102906-edcbd83e00f1
-	github.com/alanshaw/ucantone v0.0.0-20260501085633-eb9e1ef08c80
 	github.com/aws/aws-sdk-go-v2 v1.41.3
 	github.com/aws/aws-sdk-go-v2/config v1.32.11
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11
@@ -13,6 +11,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.56.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/fil-forge/libforge v0.0.0-20260505091751-785ac80c1baf
+	github.com/fil-forge/ucantone v0.0.0-20260505093517-ce9dd71dcbcb
 	github.com/google/uuid v1.6.0
 	github.com/ipfs/go-cid v0.6.1
 	github.com/ipld/go-ipld-prime v0.21.1-0.20240917223228-6148356a4c2e

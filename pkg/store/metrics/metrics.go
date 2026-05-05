@@ -3,9 +3,9 @@ package metrics
 import (
 	"context"
 
-	"github.com/alanshaw/libracha/capabilities/blob"
-	"github.com/alanshaw/libracha/capabilities/upload"
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/capabilities/upload"
+	"github.com/fil-forge/ucantone/did"
 )
 
 const BlobAddTotalMetric = blob.AddCommand + "-total"

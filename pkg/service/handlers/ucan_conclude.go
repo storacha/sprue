@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/ucantone/errors"
 	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
 	"github.com/storacha/go-ucanto/core/invocation"

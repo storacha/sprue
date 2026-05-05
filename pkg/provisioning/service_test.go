@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/alanshaw/libracha/didmailto"
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/provisioning"
 	"github.com/storacha/sprue/pkg/store/consumer"

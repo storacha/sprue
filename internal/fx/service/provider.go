@@ -4,7 +4,7 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
-	"github.com/alanshaw/ucantone/server"
+	"github.com/fil-forge/ucantone/server"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/indexerclient"
 	"github.com/storacha/sprue/pkg/service"

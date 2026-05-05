@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alanshaw/libracha/didmailto"
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/did"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/storacha/go-libstoracha/capabilities/assert"
 	blobreplicacap "github.com/storacha/go-libstoracha/capabilities/blob/replica"

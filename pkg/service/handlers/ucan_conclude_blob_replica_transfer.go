@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/ucantone/errors"
 	replicacaps "github.com/storacha/go-libstoracha/capabilities/blob/replica"
 	ucancaps "github.com/storacha/go-libstoracha/capabilities/ucan"
 	"github.com/storacha/go-libstoracha/digestutil"

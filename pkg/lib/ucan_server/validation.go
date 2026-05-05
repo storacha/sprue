@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alanshaw/ucantone/principal"
-	ed_verifier "github.com/alanshaw/ucantone/principal/ed25519/verifier"
-	secp_verifier "github.com/alanshaw/ucantone/principal/secp256k1/verifier"
-	"github.com/alanshaw/ucantone/ucan"
-	"github.com/alanshaw/ucantone/validator"
+	"github.com/fil-forge/ucantone/principal"
+	ed_verifier "github.com/fil-forge/ucantone/principal/ed25519/verifier"
+	secp_verifier "github.com/fil-forge/ucantone/principal/secp256k1/verifier"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/validator"
 )
 
 // PrincipalParser is a [validator.PrincipalParserFunc] that enables support for

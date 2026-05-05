@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/alanshaw/ucantone/principal/signer"
+	"github.com/fil-forge/ucantone/principal/signer"
 	"github.com/google/uuid"
 	"github.com/storacha/sprue/internal/config"
 	appfx "github.com/storacha/sprue/internal/fx"

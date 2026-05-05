@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/storacha/go-libstoracha/capabilities/access"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/invocation"

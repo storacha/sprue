@@ -3,7 +3,7 @@ package provider
 import (
 	"net/url"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/spf13/cobra"
 	"github.com/storacha/sprue/cmd/client/lib"
 )

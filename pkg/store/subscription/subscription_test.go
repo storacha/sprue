@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/google/uuid"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"

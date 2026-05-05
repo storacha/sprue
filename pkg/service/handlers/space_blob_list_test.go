@@ -3,7 +3,7 @@ package handlers_test
 import (
 	"testing"
 
-	"github.com/alanshaw/libracha/didmailto"
+	"github.com/fil-forge/libforge/didmailto"
 	"github.com/storacha/go-libstoracha/capabilities/space/blob"
 	"github.com/storacha/go-libstoracha/capabilities/types"
 	"github.com/storacha/go-ucanto/core/result"

@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/alanshaw/ucantone/ucan"
-	"github.com/alanshaw/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/google/uuid"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"

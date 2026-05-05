@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/storacha/go-libstoracha/capabilities/provider"
 	"github.com/storacha/go-ucanto/core/invocation"
 	"github.com/storacha/go-ucanto/core/receipt/fx"
@@ -15,8 +15,8 @@ import (
 	"github.com/storacha/go-ucanto/server"
 	"github.com/storacha/go-ucanto/ucan"
 
-	"github.com/alanshaw/libracha/didmailto"
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/storacha/sprue/internal/config"
 	"github.com/storacha/sprue/pkg/billing"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"

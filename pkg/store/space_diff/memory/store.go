@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	cid "github.com/ipfs/go-cid"
 	"github.com/storacha/sprue/pkg/internal/timeutil"
 	"github.com/storacha/sprue/pkg/store"

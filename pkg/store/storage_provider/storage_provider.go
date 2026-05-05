@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/alanshaw/ucantone/did"
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/storacha/sprue/pkg/store"
 )
 

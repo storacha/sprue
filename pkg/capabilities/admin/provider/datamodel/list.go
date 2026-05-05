@@ -1,6 +1,6 @@
 package datamodel
 
-import "github.com/alanshaw/ucantone/did"
+import "github.com/fil-forge/ucantone/did"
 
 type ListArgumentsModel struct{}
 

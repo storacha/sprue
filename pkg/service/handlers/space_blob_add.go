@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/fluent/qp"
 	basicnode "github.com/ipld/go-ipld-prime/node/basic"
@@ -33,7 +33,7 @@ import (
 	"github.com/storacha/go-ucanto/ucan"
 	"go.uber.org/zap"
 
-	"github.com/alanshaw/ucantone/errors"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/storacha/sprue/pkg/identity"
 	"github.com/storacha/sprue/pkg/internal/ipldutil"
 	"github.com/storacha/sprue/pkg/piriclient"

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alanshaw/ucantone/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/storacha/sprue/pkg/store"
 	storageprovider "github.com/storacha/sprue/pkg/store/storage_provider"
 )

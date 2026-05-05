@@ -1,8 +1,8 @@
 package provider
 
 import (
-	cdm "github.com/alanshaw/libracha/capabilities/datamodel"
-	"github.com/alanshaw/ucantone/validator/bindcap"
+	cdm "github.com/fil-forge/libforge/capabilities/datamodel"
+	"github.com/fil-forge/ucantone/validator/bindcap"
 	pdm "github.com/storacha/sprue/pkg/capabilities/admin/provider/datamodel"
 )
 

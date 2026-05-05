@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/alanshaw/libracha/capabilities/blob"
+	"github.com/fil-forge/libforge/capabilities/blob"
 	"github.com/google/uuid"
 	"github.com/storacha/sprue/internal/testutil"
 	"github.com/storacha/sprue/pkg/store"

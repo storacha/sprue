@@ -1,10 +1,10 @@
 package weight
 
 import (
-	cdm "github.com/alanshaw/libracha/capabilities/datamodel"
-	"github.com/alanshaw/ucantone/ucan/delegation/policy"
-	"github.com/alanshaw/ucantone/validator/bindcap"
-	"github.com/alanshaw/ucantone/validator/capability"
+	cdm "github.com/fil-forge/libforge/capabilities/datamodel"
+	"github.com/fil-forge/ucantone/ucan/delegation/policy"
+	"github.com/fil-forge/ucantone/validator/bindcap"
+	"github.com/fil-forge/ucantone/validator/capability"
 	wdm "github.com/storacha/sprue/pkg/capabilities/admin/provider/weight/datamodel"
 )
 
