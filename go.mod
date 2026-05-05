@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/fil-forge/libforge v0.0.0-20260505105914-4f8e7c887d64
-	github.com/fil-forge/ucantone v0.0.0-20260505093517-ce9dd71dcbcb
+	github.com/fil-forge/ucantone v0.0.0-20260505192457-3b02428e0c6d
 	github.com/google/uuid v1.6.0
 	github.com/ipfs/go-cid v0.6.1
 	github.com/ipld/go-ipld-prime v0.21.1-0.20240917223228-6148356a4c2e

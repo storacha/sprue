@@ -96,7 +96,7 @@ func (t *ProviderModel) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Weight (uint64) (uint64)
+	// t.Weight (int64) (int64)
 	if len("weight") > 8192 {
 		return xerrors.Errorf("Value in field \"weight\" was too long")
 	}
@@ -108,8 +108,14 @@ func (t *ProviderModel) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Weight)); err != nil {
-		return err
+	if t.Weight >= 0 {
+		if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Weight)); err != nil {
+			return err
+		}
+	} else {
+		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.Weight-1)); err != nil {
+			return err
+		}
 	}
 
 	// t.Endpoint (string) (string)
@@ -151,7 +157,7 @@ func (t *ProviderModel) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.ReplicationWeight (uint64) (uint64)
+	// t.ReplicationWeight (int64) (int64)
 	if len("replicationWeight") > 8192 {
 		return xerrors.Errorf("Value in field \"replicationWeight\" was too long")
 	}
@@ -163,8 +169,14 @@ func (t *ProviderModel) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.ReplicationWeight)); err != nil {
-		return err
+	if t.ReplicationWeight >= 0 {
+		if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.ReplicationWeight)); err != nil {
+			return err
+		}
+	} else {
+		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.ReplicationWeight-1)); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -211,20 +223,31 @@ func (t *ProviderModel) UnmarshalCBOR(r io.Reader) (err error) {
 		}
 
 		switch string(nameBuf[:nameLen]) {
-		// t.Weight (uint64) (uint64)
+		// t.Weight (int64) (int64)
 		case "weight":
-
 			{
-
-				maj, extra, err = cr.ReadHeader()
+				maj, extra, err := cr.ReadHeader()
 				if err != nil {
 					return err
 				}
-				if maj != cbg.MajUnsignedInt {
-					return fmt.Errorf("wrong type for uint64 field")
+				var extraI int64
+				switch maj {
+				case cbg.MajUnsignedInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 positive overflow")
+					}
+				case cbg.MajNegativeInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 negative overflow")
+					}
+					extraI = -1 - extraI
+				default:
+					return fmt.Errorf("wrong type for int64 field: %d", maj)
 				}
-				t.Weight = uint64(extra)
 
+				t.Weight = int64(extraI)
 			}
 			// t.Endpoint (string) (string)
 		case "endpoint":
@@ -247,20 +270,31 @@ func (t *ProviderModel) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 
 			}
-			// t.ReplicationWeight (uint64) (uint64)
+			// t.ReplicationWeight (int64) (int64)
 		case "replicationWeight":
-
 			{
-
-				maj, extra, err = cr.ReadHeader()
+				maj, extra, err := cr.ReadHeader()
 				if err != nil {
 					return err
 				}
-				if maj != cbg.MajUnsignedInt {
-					return fmt.Errorf("wrong type for uint64 field")
+				var extraI int64
+				switch maj {
+				case cbg.MajUnsignedInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 positive overflow")
+					}
+				case cbg.MajNegativeInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 negative overflow")
+					}
+					extraI = -1 - extraI
+				default:
+					return fmt.Errorf("wrong type for int64 field: %d", maj)
 				}
-				t.ReplicationWeight = uint64(extra)
 
+				t.ReplicationWeight = int64(extraI)
 			}
 
 		default:

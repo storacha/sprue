@@ -10,63 +10,63 @@ import (
 var Module = fx.Module("service-handlers",
 	fx.Provide(
 		fx.Annotate(
-			handlers.AccessAuthorizeHandler,
+			handlers.NewAccessAuthorizeHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.AccessClaimHandler,
+			handlers.NewAccessClaimHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.AccessDelegateHandler,
+			handlers.NewAccessDelegateHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.AdminProviderDeregisterHandler,
+			handlers.NewAdminProviderDeregisterHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.AdminProviderListHandler,
+			handlers.NewAdminProviderListHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.AdminProviderRegisterHandler,
+			handlers.NewAdminProviderRegisterHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.AdminProviderWeightSetHandler,
+			handlers.NewAdminProviderWeightSetHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.ProviderAddHandler,
+			handlers.NewProviderAddHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.BlobAddHandler,
+			handlers.NewBlobAddHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.BlobReplicateHandler,
+			handlers.NewBlobReplicateHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.IndexAddHandler,
+			handlers.NewIndexAddHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.UCANConcludeHandler,
+			handlers.NewUCANConcludeHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.UploadAddHandler,
+			handlers.NewUploadAddHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.UploadListHandler,
+			handlers.NewUploadListHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
-			handlers.UploadShardListHandler,
+			handlers.NewUploadShardListHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(

@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/fil-forge/libforge/didmailto"
-	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ipld"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/result"
@@ -40,13 +39,8 @@ type Service struct {
 	ucanServer      *server.HTTPServer
 }
 
-type Handler struct {
-	Capability validator.Capability
-	Handler    execution.HandlerFunc
-}
-
 // New creates a new Service instance.
-func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, handlers []Handler, logger *zap.Logger, options ...server.HTTPOption) *Service {
+func New(id *identity.Identity, agentStore agent.Store, delegationStore delegation_store.Store, handlers []handlers.Handler, logger *zap.Logger, options ...server.HTTPOption) *Service {
 	return &Service{
 		identity:        id,
 		agentStore:      agentStore,
@@ -57,7 +51,7 @@ func New(id *identity.Identity, agentStore agent.Store, delegationStore delegati
 }
 
 // createUCANServer creates the UCAN RPC server with registered handlers.
-func createUCANServer(id principal.Signer, agentStore agent.Store, handlers []Handler, logger *zap.Logger, options ...server.HTTPOption) *server.HTTPServer {
+func createUCANServer(id principal.Signer, agentStore agent.Store, handlers []handlers.Handler, logger *zap.Logger, options ...server.HTTPOption) *server.HTTPServer {
 	options = append(
 		slices.Clone(options),
 		server.WithReceiptTimestamps(true),
