@@ -171,6 +171,10 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/fil-forge/libforge v0.0.0-20260505105914-4f8e7c887d64 h1:61HYuo4XePtrO8grRNKRPkFbNLDJoVdRtu0fGNsOpfo=
 github.com/fil-forge/libforge v0.0.0-20260505105914-4f8e7c887d64/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
+github.com/fil-forge/libforge v0.0.0-20260506110417-1a56019bd8a8 h1:fVOctq4ThHngp89TCBjb9K6uiyNgs+f8EaIpZghAuhU=
+github.com/fil-forge/libforge v0.0.0-20260506110417-1a56019bd8a8/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
+github.com/fil-forge/libforge v0.0.0-20260506113535-1cf68689ca54 h1:dqSl0AmGHAwvWMXCtxA4IVm1UKZpaLw0BVR4AChlgJw=
+github.com/fil-forge/libforge v0.0.0-20260506113535-1cf68689ca54/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
 github.com/fil-forge/ucantone v0.0.0-20260505192457-3b02428e0c6d h1:oAbNqMifW1qYCgyTLes7ltgUvWMlQTXH7GZC6ei4tLg=
 github.com/fil-forge/ucantone v0.0.0-20260505192457-3b02428e0c6d/go.mod h1:vqgVEsy6LEEsY24Zyjxem0vSofj1XTIx29GbV635f+I=
 github.com/filecoin-project/go-data-segment v0.0.1 h1:1wmDxOG4ubWQm3ZC1XI5nCon5qgSq7Ra3Rb6Dbu10Gs=

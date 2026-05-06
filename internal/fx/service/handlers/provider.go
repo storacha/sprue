@@ -10,7 +10,7 @@ import (
 var Module = fx.Module("service-handlers",
 	fx.Provide(
 		fx.Annotate(
-			handlers.NewAccessAuthorizeHandler,
+			handlers.NewAccessRequestHandler,
 			fx.ResultTags(`group:"ucan_handlers"`),
 		),
 		fx.Annotate(
