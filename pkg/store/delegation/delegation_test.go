@@ -83,7 +83,7 @@ func TestDelegationStore(t *testing.T) {
 				dlg := makeDelegation(t, audience)
 				cause := testutil.RandomCID(t)
 
-				require.NoError(t, s.PutMany(t.Context(), []ucan.Delegation{dlg}, cause))
+				require.NoError(t, s.PutMany(t.Context(), []ucan.Token{dlg}, cause))
 
 				page, err := s.ListByAudience(t.Context(), audience.DID())
 				require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestDelegationStore(t *testing.T) {
 				dlg2 := makeDelegation(t, audience)
 				cause := testutil.RandomCID(t)
 
-				require.NoError(t, s.PutMany(t.Context(), []ucan.Delegation{dlg1, dlg2}, cause))
+				require.NoError(t, s.PutMany(t.Context(), []ucan.Token{dlg1, dlg2}, cause))
 
 				page, err := s.ListByAudience(t.Context(), audience.DID())
 				require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestDelegationStore(t *testing.T) {
 				dlg2 := makeDelegation(t, aud2)
 				cause := testutil.RandomCID(t)
 
-				require.NoError(t, s.PutMany(t.Context(), []ucan.Delegation{dlg1, dlg2}, cause))
+				require.NoError(t, s.PutMany(t.Context(), []ucan.Token{dlg1, dlg2}, cause))
 
 				page1, err := s.ListByAudience(t.Context(), aud1.DID())
 				require.NoError(t, err)
@@ -139,9 +139,9 @@ func TestDelegationStore(t *testing.T) {
 				cause := testutil.RandomCID(t)
 
 				for range 3 {
-					require.NoError(t, s.PutMany(t.Context(), []ucan.Delegation{makeDelegation(t, aud1)}, cause))
+					require.NoError(t, s.PutMany(t.Context(), []ucan.Token{makeDelegation(t, aud1)}, cause))
 				}
-				require.NoError(t, s.PutMany(t.Context(), []ucan.Delegation{makeDelegation(t, aud2)}, cause))
+				require.NoError(t, s.PutMany(t.Context(), []ucan.Token{makeDelegation(t, aud2)}, cause))
 
 				page, err := s.ListByAudience(t.Context(), aud1.DID())
 				require.NoError(t, err)
@@ -153,10 +153,10 @@ func TestDelegationStore(t *testing.T) {
 				cause := testutil.RandomCID(t)
 
 				for range 5 {
-					require.NoError(t, s.PutMany(t.Context(), []ucan.Delegation{makeDelegation(t, audience)}, cause))
+					require.NoError(t, s.PutMany(t.Context(), []ucan.Token{makeDelegation(t, audience)}, cause))
 				}
 
-				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[ucan.Delegation], error) {
+				all, err := store.Collect(t.Context(), func(ctx context.Context, opts store.PaginationConfig) (store.Page[ucan.Token], error) {
 					var listOpts []dlgstore.ListByAudienceOption
 					if opts.Cursor != nil {
 						listOpts = append(listOpts, dlgstore.WithListByAudienceCursor(*opts.Cursor))

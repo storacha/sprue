@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,6 +14,7 @@ import (
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/sprue/pkg/internal/timeutil"
 	"github.com/storacha/sprue/pkg/store"
@@ -103,15 +105,27 @@ func (s *Store) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) PutMany(ctx context.Context, delegations []ucan.Delegation, cause cid.Cid) error {
+func (s *Store) PutMany(ctx context.Context, tokens []ucan.Token, cause cid.Cid) error {
 	now := time.Now().UTC().Format(timeutil.SimplifiedISO8601)
-	for _, dlg := range delegations {
-		link := dlg.Link().String()
+	for _, token := range tokens {
+		link := token.Link().String()
 
-		body, err := delegation.Encode(dlg)
-		if err != nil {
-			return fmt.Errorf("encoding delegation %s: %w", link, err)
+		var body []byte
+		var err error
+		if dlg, ok := token.(ucan.Delegation); ok {
+			body, err = delegation.Encode(dlg)
+			if err != nil {
+				return fmt.Errorf("encoding delegation %s: %w", link, err)
+			}
+		} else if inv, ok := token.(ucan.Invocation); ok {
+			body, err = invocation.Encode(inv)
+			if err != nil {
+				return fmt.Errorf("encoding invocation %s: %w", link, err)
+			}
+		} else {
+			return fmt.Errorf("unsupported token type: %T", token)
 		}
+
 		if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: &s.bucketName,
 			Key:    aws.String(link),
@@ -120,18 +134,26 @@ func (s *Store) PutMany(ctx context.Context, delegations []ucan.Delegation, caus
 			return fmt.Errorf("storing delegation %s in S3: %w", link, err)
 		}
 
+		var aud did.DID
+		// audience may be nil if the token is an invocation
+		if token.Audience() != nil {
+			aud = token.Audience().DID()
+		} else {
+			aud = token.Subject().DID()
+		}
+
 		// Write the index entry to DynamoDB.
 		item := map[string]types.AttributeValue{
 			"link":       &types.AttributeValueMemberS{Value: link},
-			"audience":   &types.AttributeValueMemberS{Value: dlg.Audience().DID().String()},
-			"issuer":     &types.AttributeValueMemberS{Value: dlg.Issuer().DID().String()},
+			"audience":   &types.AttributeValueMemberS{Value: aud.String()},
+			"issuer":     &types.AttributeValueMemberS{Value: token.Issuer().DID().String()},
 			"insertedAt": &types.AttributeValueMemberS{Value: now},
 			"updatedAt":  &types.AttributeValueMemberS{Value: now},
 		}
 		if cause != cid.Undef {
 			item["cause"] = &types.AttributeValueMemberS{Value: cause.String()}
 		}
-		if exp := dlg.Expiration(); exp != nil {
+		if exp := token.Expiration(); exp != nil {
 			item["expiration"] = &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", *exp)}
 		}
 
@@ -145,7 +167,7 @@ func (s *Store) PutMany(ctx context.Context, delegations []ucan.Delegation, caus
 	return nil
 }
 
-func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ...dlgstore.ListByAudienceOption) (store.Page[ucan.Delegation], error) {
+func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ...dlgstore.ListByAudienceOption) (store.Page[ucan.Token], error) {
 	cfg := dlgstore.ListByAudienceConfig{}
 	for _, opt := range options {
 		opt(&cfg)
@@ -174,18 +196,18 @@ func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ..
 
 	out, err := s.dynamo.Query(ctx, input)
 	if err != nil {
-		return store.Page[ucan.Delegation]{}, fmt.Errorf("querying delegations by audience: %w", err)
+		return store.Page[ucan.Token]{}, fmt.Errorf("querying delegations by audience: %w", err)
 	}
 
-	results := make([]ucan.Delegation, 0, len(out.Items))
+	results := make([]ucan.Token, 0, len(out.Items))
 	for _, item := range out.Items {
 		linkAttr, ok := item["link"].(*types.AttributeValueMemberS)
 		if !ok {
-			return store.Page[ucan.Delegation]{}, fmt.Errorf("missing or invalid link attribute in DynamoDB item")
+			return store.Page[ucan.Token]{}, fmt.Errorf("missing or invalid link attribute in DynamoDB item")
 		}
-		dlg, err := s.fetchDelegation(ctx, linkAttr.Value)
+		dlg, err := s.fetchToken(ctx, linkAttr.Value)
 		if err != nil {
-			return store.Page[ucan.Delegation]{}, fmt.Errorf("fetching delegation %s: %w", linkAttr.Value, err)
+			return store.Page[ucan.Token]{}, fmt.Errorf("fetching delegation %s: %w", linkAttr.Value, err)
 		}
 		results = append(results, dlg)
 	}
@@ -197,11 +219,12 @@ func (s *Store) ListByAudience(ctx context.Context, audience did.DID, options ..
 		}
 	}
 
-	return store.Page[ucan.Delegation]{Results: results, Cursor: cursor}, nil
+	return store.Page[ucan.Token]{Results: results, Cursor: cursor}, nil
 }
 
-// fetchDelegation retrieves and decodes a delegation from S3 by its link CID string.
-func (s *Store) fetchDelegation(ctx context.Context, link string) (ucan.Delegation, error) {
+// fetchToken retrieves and decodes a delegation/invocation from S3 by its link
+// CID string.
+func (s *Store) fetchToken(ctx context.Context, link string) (ucan.Token, error) {
 	out, err := s.s3.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &s.bucketName,
 		Key:    aws.String(link),
@@ -211,9 +234,18 @@ func (s *Store) fetchDelegation(ctx context.Context, link string) (ucan.Delegati
 	}
 	defer out.Body.Close()
 
-	var dlg delegation.Delegation
-	if err := dlg.UnmarshalCBOR(out.Body); err != nil {
-		return nil, fmt.Errorf("unmarshaling delegation from CBOR: %w", err)
+	body, err := io.ReadAll(out.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading delegation body from S3: %w", err)
 	}
-	return &dlg, nil
+
+	inv, err := invocation.Decode(body)
+	if err != nil {
+		dlg, err := delegation.Decode(body)
+		if err != nil {
+			return nil, fmt.Errorf("decoding token: %w", err)
+		}
+		return dlg, nil
+	}
+	return inv, nil
 }

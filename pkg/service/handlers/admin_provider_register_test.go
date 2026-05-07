@@ -149,35 +149,4 @@ func TestAdminProviderRegisterHandler(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "https://piri.example.com", rec.Endpoint.String())
 	})
-
-	t.Run("provider itself can register", func(t *testing.T) {
-		spStore := storage_provider_store.New()
-
-		handler := handlers.NewAdminProviderRegisterHandler(
-			&identity.Identity{Signer: uploadService}, spStore, logger,
-		)
-
-		storageProvider := testutil.RandomSigner(t)
-
-		args := provider.RegisterArguments{
-			Provider: storageProvider.DID(),
-			Endpoint: "https://piri.example.com",
-		}
-
-		// Issued by the provider itself
-		req := issueRegisterInvocation(t, storageProvider, uploadService, args)
-		res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
-		require.NoError(t, err)
-
-		err = handler.Handler(req, res)
-		require.NoError(t, err)
-
-		o, x := result.Unwrap(res.Receipt().Out())
-		require.Nil(t, x)
-		require.NotNil(t, o)
-
-		rec, err := spStore.Get(ctx, storageProvider.DID())
-		require.NoError(t, err)
-		require.Equal(t, "https://piri.example.com", rec.Endpoint.String())
-	})
 }

@@ -175,8 +175,14 @@ github.com/fil-forge/libforge v0.0.0-20260506110417-1a56019bd8a8 h1:fVOctq4ThHng
 github.com/fil-forge/libforge v0.0.0-20260506110417-1a56019bd8a8/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
 github.com/fil-forge/libforge v0.0.0-20260506113535-1cf68689ca54 h1:dqSl0AmGHAwvWMXCtxA4IVm1UKZpaLw0BVR4AChlgJw=
 github.com/fil-forge/libforge v0.0.0-20260506113535-1cf68689ca54/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
+github.com/fil-forge/libforge v0.0.0-20260507093819-39664db550c7 h1:mvd1Kk/uOmV9sPLUwPNtYPCvjTdWtHjVKw77MwQV3a0=
+github.com/fil-forge/libforge v0.0.0-20260507093819-39664db550c7/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
+github.com/fil-forge/libforge v0.0.0-20260507094351-c86298c4823e h1:BHXR4KVmFBDRPosCDWLVX4db00MNFZaEVxLIqxplIyI=
+github.com/fil-forge/libforge v0.0.0-20260507094351-c86298c4823e/go.mod h1:IdNOBIQeH59dG99FnLmqrwrvaJ4Akm4IPUng8DeqFig=
 github.com/fil-forge/ucantone v0.0.0-20260505192457-3b02428e0c6d h1:oAbNqMifW1qYCgyTLes7ltgUvWMlQTXH7GZC6ei4tLg=
 github.com/fil-forge/ucantone v0.0.0-20260505192457-3b02428e0c6d/go.mod h1:vqgVEsy6LEEsY24Zyjxem0vSofj1XTIx29GbV635f+I=
+github.com/fil-forge/ucantone v0.0.0-20260507115308-bdd3b86f5b1b h1:8tvw5e7S1ntUnm0v/OTWLZelbJWQcho/WZI+ttCPv+A=
+github.com/fil-forge/ucantone v0.0.0-20260507115308-bdd3b86f5b1b/go.mod h1:vqgVEsy6LEEsY24Zyjxem0vSofj1XTIx29GbV635f+I=
 github.com/filecoin-project/go-data-segment v0.0.1 h1:1wmDxOG4ubWQm3ZC1XI5nCon5qgSq7Ra3Rb6Dbu10Gs=
 github.com/filecoin-project/go-data-segment v0.0.1/go.mod h1:H0/NKbsRxmRFBcLibmABv+yFNHdmtl5AyplYLnb0Zv4=
 github.com/filecoin-project/go-fil-commcid v0.2.0 h1:B+5UX8XGgdg/XsdUpST4pEBviKkFOw+Fvl2bLhSKGpI=

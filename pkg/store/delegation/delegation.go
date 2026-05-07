@@ -28,6 +28,6 @@ type Store interface {
 	// Implementations MAY choose to avoid storing delegations as long as they can
 	// reliably retrieve the invocation by CID when they need to return the given
 	// delegations.
-	PutMany(ctx context.Context, delegations []ucan.Delegation, cause cid.Cid) error
-	ListByAudience(ctx context.Context, audience did.DID, options ...ListByAudienceOption) (store.Page[ucan.Delegation], error)
+	PutMany(ctx context.Context, tokens []ucan.Token, cause cid.Cid) error
+	ListByAudience(ctx context.Context, audience did.DID, options ...ListByAudienceOption) (store.Page[ucan.Token], error)
 }
