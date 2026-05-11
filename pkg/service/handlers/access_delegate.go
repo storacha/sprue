@@ -51,7 +51,7 @@ func NewAccessDelegateHandler(delegationStore delegation_store.Store, provisioni
 				return err
 			}
 
-			err = delegationStore.PutMany(req.Context(), dlgs, req.Invocation().Link())
+			err = delegationStore.PutMany(req.Context(), dlgs, req.Invocation().Task().Link())
 			if err != nil {
 				log.Error("failed to store delegations", zap.Error(err))
 				return err

@@ -69,7 +69,7 @@ func NewAccessConfirmHandler(id *identity.Identity, delegationStore delegation_s
 				args.Attenuations,
 				datamodel.Map{
 					access.RequestMetaKey: args.Cause,
-					access.ConfirmMetaKey: req.Invocation().Link(),
+					access.ConfirmMetaKey: req.Invocation().Task().Link(),
 				},
 			)
 			if err != nil {

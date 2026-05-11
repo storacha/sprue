@@ -1,208 +1,244 @@
 package handlers_test
 
-// import (
-// 	"context"
-// 	"testing"
+import (
+	"context"
+	"testing"
 
-// 	ucancap "github.com/storacha/go-libstoracha/capabilities/ucan"
-// 	"github.com/storacha/go-ucanto/core/invocation"
-// 	"github.com/storacha/go-ucanto/core/ipld"
-// 	"github.com/storacha/go-ucanto/core/receipt"
-// 	"github.com/storacha/go-ucanto/core/receipt/ran"
-// 	"github.com/storacha/go-ucanto/core/result"
-// 	"github.com/storacha/go-ucanto/core/result/ok"
-// 	"github.com/storacha/go-ucanto/server"
-// 	"github.com/storacha/go-ucanto/ucan"
-// 	"github.com/storacha/sprue/internal/testutil"
-// 	"github.com/storacha/sprue/pkg/identity"
-// 	"github.com/storacha/sprue/pkg/service/handlers"
-// 	agent_store "github.com/storacha/sprue/pkg/store/agent/memory"
-// 	"github.com/stretchr/testify/require"
-// 	"go.uber.org/zap/zaptest"
-// )
+	ucancaps "github.com/fil-forge/libforge/capabilities/ucan"
+	edm "github.com/fil-forge/ucantone/errors/datamodel"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/ipld"
+	"github.com/fil-forge/ucantone/ipld/datamodel"
+	"github.com/fil-forge/ucantone/result"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
+	"github.com/storacha/sprue/internal/testutil"
+	"github.com/storacha/sprue/pkg/identity"
+	"github.com/storacha/sprue/pkg/service/handlers"
+	"github.com/storacha/sprue/pkg/store/agent"
+	agent_store "github.com/storacha/sprue/pkg/store/agent/memory"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
+)
 
-// // issueConclude creates a ucan/conclude invocation with the receipt blocks attached.
-// func issueConclude(t *testing.T, signer ucan.Signer, rcpt receipt.AnyReceipt) invocation.Invocation {
-// 	t.Helper()
-// 	inv, err := ucancap.Conclude.Invoke(
-// 		signer, signer,
-// 		signer.DID().String(),
-// 		ucancap.ConcludeCaveats{
-// 			Receipt: rcpt.Root().Link(),
-// 		},
-// 	)
-// 	require.NoError(t, err)
+func TestUCANConcludeHandler(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	ctx := t.Context()
 
-// 	for blk, err := range rcpt.Blocks() {
-// 		require.NoError(t, err)
-// 		require.NoError(t, inv.Attach(blk))
-// 	}
-// 	return inv
-// }
+	uploadService := testutil.WebService
 
-// func TestUCANConcludeHandler(t *testing.T) {
-// 	logger := zaptest.NewLogger(t)
-// 	ctx := t.Context()
+	// Build a "task" invocation and a receipt for it.
+	newTaskAndReceipt := func(t *testing.T, cmd ucan.Command) (ucan.Invocation, ucan.Receipt) {
+		t.Helper()
+		taskInv, err := invocation.Invoke(uploadService, uploadService, cmd, datamodel.Map{})
+		require.NoError(t, err)
+		rcpt, err := receipt.Issue(
+			uploadService,
+			taskInv.Task().Link(),
+			result.OK[int64, ipld.Any](int64(1)),
+		)
+		require.NoError(t, err)
+		return taskInv, rcpt
+	}
 
-// 	uploadService := testutil.WebService
+	t.Run("receipt not in metadata", func(t *testing.T) {
+		agentStore := agent_store.New()
+		handlerMap := map[ucan.Command]handlers.ConclusionHandlerFunc{}
 
-// 	t.Run("receipt not readable from blocks", func(t *testing.T) {
-// 		agentStore := agent_store.New()
-// 		handlerMap := map[ucan.Ability]handlers.ConclusionHandlerFunc{}
+		handler := handlers.NewUCANConcludeHandler(
+			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
+		)
 
-// 		handler := handlers.UCANConcludeHandler(
-// 			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
-// 		)
+		_, rcpt := newTaskAndReceipt(t, "/test/thing")
 
-// 		// Create a conclude invocation WITHOUT attaching the receipt blocks
-// 		taskInv, err := invocation.Invoke(
-// 			uploadService, uploadService,
-// 			ucan.NewCapability("test/thing", uploadService.DID().String(), ucan.NoCaveats{}),
-// 		)
-// 		require.NoError(t, err)
+		concludeInv, err := ucancaps.Conclude.Invoke(
+			uploadService,
+			uploadService,
+			&ucancaps.ConcludeArguments{Receipt: rcpt.Link()},
+			invocation.WithAudience(uploadService),
+		)
+		require.NoError(t, err)
 
-// 		rcpt, err := receipt.Issue(
-// 			uploadService,
-// 			result.Ok[ok.Unit, ipld.Builder](ok.Unit{}),
-// 			ran.FromInvocation(taskInv),
-// 		)
-// 		require.NoError(t, err)
+		// The receipt is referenced in args but NOT attached to the request
+		// metadata, so the handler can't find it.
+		req := execution.NewRequest(ctx, concludeInv)
+		res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
+		require.NoError(t, err)
 
-// 		// Invoke conclude but don't attach receipt blocks
-// 		concludeInv, err := ucancap.Conclude.Invoke(
-// 			uploadService, uploadService,
-// 			uploadService.DID().String(),
-// 			ucancap.ConcludeCaveats{
-// 				Receipt: rcpt.Root().Link(),
-// 			},
-// 		)
-// 		require.NoError(t, err)
+		err = handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		concludeCap := ucancap.Conclude.New(
-// 			uploadService.DID().String(),
-// 			ucancap.ConcludeCaveats{Receipt: rcpt.Root().Link()},
-// 		)
-// 		_, _, err = handler(ctx, concludeCap, concludeInv, nil)
-// 		require.Error(t, err)
-// 		require.Contains(t, err.Error(), "reading receipt")
-// 	})
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.NotNil(t, fail)
 
-// 	t.Run("unknown invocation returns success", func(t *testing.T) {
-// 		agentStore := agent_store.New()
-// 		handlerMap := map[ucan.Ability]handlers.ConclusionHandlerFunc{}
+		model := edm.ErrorModel{}
+		err = datamodel.Rebind(datamodel.NewAny(fail), &model)
+		require.NoError(t, err)
+		require.Equal(t, handlers.ConclusionReceiptNotFoundErrorName, model.Name())
+	})
 
-// 		handler := handlers.UCANConcludeHandler(
-// 			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
-// 		)
+	t.Run("unknown invocation returns success", func(t *testing.T) {
+		agentStore := agent_store.New()
+		handlerMap := map[ucan.Command]handlers.ConclusionHandlerFunc{}
 
-// 		// Create a receipt for some task that is NOT in the agent store
-// 		// and is NOT embedded in the receipt as an invocation
-// 		taskInv, err := invocation.Invoke(
-// 			uploadService, uploadService,
-// 			ucan.NewCapability("test/thing", uploadService.DID().String(), ucan.NoCaveats{}),
-// 		)
-// 		require.NoError(t, err)
+		handler := handlers.NewUCANConcludeHandler(
+			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
+		)
 
-// 		rcpt, err := receipt.Issue(
-// 			uploadService,
-// 			result.Ok[ok.Unit, ipld.Builder](ok.Unit{}),
-// 			ran.FromInvocation(taskInv),
-// 		)
-// 		require.NoError(t, err)
+		// Receipt is supplied but the ran invocation is neither in the request
+		// metadata nor in the agent store — the handler treats this as a no-op.
+		_, rcpt := newTaskAndReceipt(t, "/test/thing")
 
-// 		concludeInv := issueConclude(t, uploadService, rcpt)
-// 		concludeCap := ucancap.Conclude.New(
-// 			uploadService.DID().String(),
-// 			ucancap.ConcludeCaveats{Receipt: rcpt.Root().Link()},
-// 		)
-// 		res, _, err := handler(ctx, concludeCap, concludeInv, nil)
-// 		require.NoError(t, err)
+		concludeInv, err := ucancaps.Conclude.Invoke(
+			uploadService,
+			uploadService,
+			&ucancaps.ConcludeArguments{Receipt: rcpt.Link()},
+			invocation.WithAudience(uploadService),
+		)
+		require.NoError(t, err)
 
-// 		o, x := result.Unwrap(res)
-// 		require.Nil(t, x)
-// 		require.NotNil(t, o)
-// 	})
+		req := execution.NewRequest(ctx, concludeInv, execution.WithReceipts(rcpt))
+		res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
+		require.NoError(t, err)
 
-// 	t.Run("dispatches to registered handler", func(t *testing.T) {
-// 		agentStore := agent_store.New()
+		err = handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		var called bool
-// 		handlerMap := map[ucan.Ability]handlers.ConclusionHandlerFunc{
-// 			"test/thing": func(_ context.Context, _ invocation.Invocation, _ receipt.AnyReceipt, _ server.InvocationContext) error {
-// 				called = true
-// 				return nil
-// 			},
-// 		}
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+	})
 
-// 		handler := handlers.UCANConcludeHandler(
-// 			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
-// 		)
+	t.Run("dispatches to registered handler", func(t *testing.T) {
+		agentStore := agent_store.New()
 
-// 		// Create a task invocation with "test/thing" ability
-// 		taskInv, err := invocation.Invoke(
-// 			uploadService, uploadService,
-// 			ucan.NewCapability("test/thing", uploadService.DID().String(), ucan.NoCaveats{}),
-// 		)
-// 		require.NoError(t, err)
+		var (
+			called  bool
+			gotInv  ucan.Invocation
+			gotRcpt ucan.Receipt
+		)
+		handlerMap := map[ucan.Command]handlers.ConclusionHandlerFunc{
+			"/test/thing": func(_ context.Context, inv ucan.Invocation, rcpt ucan.Receipt, _ ucan.Container) error {
+				called = true
+				gotInv = inv
+				gotRcpt = rcpt
+				return nil
+			},
+		}
 
-// 		rcpt, err := receipt.Issue(
-// 			uploadService,
-// 			result.Ok[ok.Unit, ipld.Builder](ok.Unit{}),
-// 			ran.FromInvocation(taskInv),
-// 		)
-// 		require.NoError(t, err)
+		handler := handlers.NewUCANConcludeHandler(
+			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
+		)
 
-// 		// Store the task invocation so the handler can find it
-// 		writeAgentMessage(t, agentStore, []invocation.Invocation{taskInv}, []receipt.AnyReceipt{rcpt})
+		taskInv, rcpt := newTaskAndReceipt(t, "/test/thing")
 
-// 		concludeInv := issueConclude(t, uploadService, rcpt)
-// 		concludeCap := ucancap.Conclude.New(
-// 			uploadService.DID().String(),
-// 			ucancap.ConcludeCaveats{Receipt: rcpt.Root().Link()},
-// 		)
-// 		res, _, err := handler(ctx, concludeCap, concludeInv, nil)
-// 		require.NoError(t, err)
-// 		require.True(t, called)
+		// Persist the task invocation in the agent store so the handler can
+		// look it up by the receipt's ran CID.
+		msg := container.New(
+			container.WithInvocations(taskInv),
+			container.WithReceipts(rcpt),
+		)
+		require.NoError(t, agentStore.Write(ctx, msg, agent.Index(msg)))
 
-// 		o, x := result.Unwrap(res)
-// 		require.Nil(t, x)
-// 		require.NotNil(t, o)
-// 	})
+		concludeInv, err := ucancaps.Conclude.Invoke(
+			uploadService,
+			uploadService,
+			&ucancaps.ConcludeArguments{Receipt: rcpt.Link()},
+			invocation.WithAudience(uploadService),
+		)
+		require.NoError(t, err)
 
-// 	t.Run("no handler for ability returns success", func(t *testing.T) {
-// 		agentStore := agent_store.New()
-// 		// Register no handlers
-// 		handlerMap := map[ucan.Ability]handlers.ConclusionHandlerFunc{}
+		req := execution.NewRequest(ctx, concludeInv, execution.WithReceipts(rcpt))
+		res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
+		require.NoError(t, err)
 
-// 		handler := handlers.UCANConcludeHandler(
-// 			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
-// 		)
+		err = handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		taskInv, err := invocation.Invoke(
-// 			uploadService, uploadService,
-// 			ucan.NewCapability("test/unhandled", uploadService.DID().String(), ucan.NoCaveats{}),
-// 		)
-// 		require.NoError(t, err)
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
 
-// 		rcpt, err := receipt.Issue(
-// 			uploadService,
-// 			result.Ok[ok.Unit, ipld.Builder](ok.Unit{}),
-// 			ran.FromInvocation(taskInv),
-// 		)
-// 		require.NoError(t, err)
+		require.True(t, called)
+		require.Equal(t, taskInv.Task().Link(), gotInv.Task().Link())
+		require.Equal(t, rcpt.Link(), gotRcpt.Link())
+	})
 
-// 		writeAgentMessage(t, agentStore, []invocation.Invocation{taskInv}, []receipt.AnyReceipt{rcpt})
+	t.Run("no handler for command returns success", func(t *testing.T) {
+		agentStore := agent_store.New()
+		// No handlers registered.
+		handlerMap := map[ucan.Command]handlers.ConclusionHandlerFunc{}
 
-// 		concludeInv := issueConclude(t, uploadService, rcpt)
-// 		concludeCap := ucancap.Conclude.New(
-// 			uploadService.DID().String(),
-// 			ucancap.ConcludeCaveats{Receipt: rcpt.Root().Link()},
-// 		)
-// 		res, _, err := handler(ctx, concludeCap, concludeInv, nil)
-// 		require.NoError(t, err)
+		handler := handlers.NewUCANConcludeHandler(
+			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
+		)
 
-// 		o, x := result.Unwrap(res)
-// 		require.Nil(t, x)
-// 		require.NotNil(t, o)
-// 	})
-// }
+		taskInv, rcpt := newTaskAndReceipt(t, "/test/unhandled")
+
+		msg := container.New(
+			container.WithInvocations(taskInv),
+			container.WithReceipts(rcpt),
+		)
+		require.NoError(t, agentStore.Write(ctx, msg, agent.Index(msg)))
+
+		concludeInv, err := ucancaps.Conclude.Invoke(
+			uploadService,
+			uploadService,
+			&ucancaps.ConcludeArguments{Receipt: rcpt.Link()},
+			invocation.WithAudience(uploadService),
+		)
+		require.NoError(t, err)
+
+		req := execution.NewRequest(ctx, concludeInv, execution.WithReceipts(rcpt))
+		res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
+		require.NoError(t, err)
+
+		err = handler.Handler(req, res)
+		require.NoError(t, err)
+
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+	})
+
+	t.Run("invocation supplied via metadata", func(t *testing.T) {
+		agentStore := agent_store.New()
+
+		var called bool
+		handlerMap := map[ucan.Command]handlers.ConclusionHandlerFunc{
+			"/test/thing": func(_ context.Context, _ ucan.Invocation, _ ucan.Receipt, _ ucan.Container) error {
+				called = true
+				return nil
+			},
+		}
+
+		handler := handlers.NewUCANConcludeHandler(
+			&identity.Identity{Signer: uploadService}, agentStore, handlerMap, logger,
+		)
+
+		taskInv, rcpt := newTaskAndReceipt(t, "/test/thing")
+
+		// The ran invocation is supplied directly in the request metadata —
+		// no agent-store lookup required.
+		concludeInv, err := ucancaps.Conclude.Invoke(
+			uploadService,
+			uploadService,
+			&ucancaps.ConcludeArguments{Receipt: rcpt.Link()},
+			invocation.WithAudience(uploadService),
+		)
+		require.NoError(t, err)
+
+		req := execution.NewRequest(ctx, concludeInv,
+			execution.WithReceipts(rcpt),
+			execution.WithInvocations(taskInv),
+		)
+		res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
+		require.NoError(t, err)
+
+		err = handler.Handler(req, res)
+		require.NoError(t, err)
+
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+		require.True(t, called)
+	})
+}

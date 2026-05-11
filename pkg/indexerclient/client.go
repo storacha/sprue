@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"slices"
 
-	assertcap "github.com/fil-forge/libforge/capabilities/assert"
-	contentcap "github.com/fil-forge/libforge/capabilities/content"
-	ucanlib "github.com/fil-forge/libforge/ucan"
+	assertcaps "github.com/fil-forge/libforge/capabilities/assert"
+	contentcaps "github.com/fil-forge/libforge/capabilities/content"
 	"github.com/fil-forge/ucantone/client"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/execution"
@@ -17,6 +15,7 @@ import (
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
 	"github.com/storacha/sprue/pkg/lib/ucan_client"
+	"github.com/storacha/sprue/pkg/lib/ucan_server"
 	"go.uber.org/zap"
 )
 
@@ -46,34 +45,44 @@ func New(endpoint *url.URL, indexerDID did.DID, signer ucan.Signer, logger *zap.
 
 // PublishIndexClaim sends an /assert/index claim to the indexer.
 //
-// The retrievalAuth parameter is a delegation chain authorizing the upload
-// service to retrieve the index blob via `/content/retrieve` command.
-func (c *Client) PublishIndexClaim(ctx context.Context, space did.DID, content, index cid.Cid, retrievalAuth []ucan.Delegation, matcher ucanlib.DelegationMatcher, options ...invocation.Option) (ucan.Receipt, error) {
+// The proofStore parameter is used to build the delegation chain authorizing
+// the upload service to retrieve the index blob via `/content/retrieve` command.
+func (c *Client) PublishIndexClaim(ctx context.Context, space did.DID, index cid.Cid, proofStore ucan_server.ProofStore, options ...invocation.Option) (ucan.Receipt, error) {
+	prfs, prfLinks, err := proofStore.ProofChain(ctx, c.signer, contentcaps.RetrieveCommand, space)
+	if err != nil {
+		return nil, fmt.Errorf("building proof chain: %w", err)
+	}
+	attestations, err := proofStore.ProofAttestations(ctx, prfs, c.signer)
+	if err != nil {
+		return nil, fmt.Errorf("building attestations: %w", err)
+	}
 	// Create a content retrieval delegation from upload service to indexer
-	indexerDelegation, err := contentcap.Retrieve.Delegate(c.signer, c.indexerDID, space)
+	indexerDelegation, err := contentcaps.Retrieve.Delegate(c.signer, c.indexerDID, space)
 	if err != nil {
 		return nil, fmt.Errorf("creating indexer delegation: %w", err)
 	}
-	retrievalAuth = slices.Clone(retrievalAuth)
-	retrievalAuth = append(retrievalAuth, indexerDelegation)
 
-	inv, err := assertcap.Index.Invoke(
+	inv, err := assertcaps.Index.Invoke(
 		c.signer,
 		c.signer,
-		&assertcap.IndexArguments{
-			Content: content,
-			Index:   index,
-		},
+		&assertcaps.IndexArguments{Index: index},
 		invocation.WithAudience(c.indexerDID),
 		invocation.WithMetadata(
-			datamodel.Map{"retrievalAuth": indexerDelegation.Link()},
+			datamodel.Map{"retrievalAuth": append(prfLinks, indexerDelegation.Link())},
 		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating invocation: %w", err)
 	}
 
-	_, rcpt, err := ucan_client.Execute[*assertcap.IndexOK](ctx, c.client, c.logger, inv, execution.WithDelegations(retrievalAuth...))
+	_, rcpt, err := ucan_client.Execute[*assertcaps.IndexOK](
+		ctx,
+		c.client,
+		c.logger,
+		inv,
+		execution.WithDelegations(prfs...),
+		execution.WithInvocations(attestations...),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("executing assert index invocation: %w", err)
 	}

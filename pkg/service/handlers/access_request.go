@@ -90,8 +90,8 @@ func NewAccessRequestHandler(serverCfg config.ServerConfig, id *identity.Identit
 					Issuer:       account,
 					Audience:     audience,
 					Attenuations: args.Attenuations,
-					// Link to the invocation that requested the authorization.
-					Cause: req.Invocation().Link(),
+					// Link to the task that requested the authorization.
+					Cause: req.Invocation().Task().Link(),
 				},
 				// audience same as issuer because this is a service invocation
 				// that will get handled by /access/confirm handler

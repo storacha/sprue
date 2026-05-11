@@ -1,256 +1,238 @@
-package handlers
+package handlers_test
 
-// import (
-// 	"context"
-// 	"testing"
+import (
+	"context"
+	"testing"
 
-// 	"github.com/fil-forge/ucantone/did"
-// 	"github.com/storacha/go-libstoracha/capabilities/provider"
-// 	"github.com/storacha/go-ucanto/core/invocation"
-// 	"github.com/storacha/go-ucanto/core/result"
-// 	"github.com/storacha/go-ucanto/ucan"
+	providercaps "github.com/fil-forge/libforge/capabilities/provider"
+	"github.com/fil-forge/libforge/didmailto"
+	"github.com/fil-forge/ucantone/did"
+	edm "github.com/fil-forge/ucantone/errors/datamodel"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/ipld/datamodel"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/result"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/storacha/sprue/internal/config"
+	"github.com/storacha/sprue/internal/testutil"
+	"github.com/storacha/sprue/pkg/billing"
+	"github.com/storacha/sprue/pkg/provisioning"
+	"github.com/storacha/sprue/pkg/service/handlers"
+	consumer_store "github.com/storacha/sprue/pkg/store/consumer/memory"
+	customer_store "github.com/storacha/sprue/pkg/store/customer/memory"
+	subscription_store "github.com/storacha/sprue/pkg/store/subscription/memory"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
+)
 
-// 	"github.com/storacha/sprue/internal/config"
-// 	"github.com/storacha/sprue/pkg/billing"
-// 	"github.com/storacha/sprue/pkg/identity"
-// 	"github.com/storacha/sprue/pkg/provisioning"
-// 	consumermemory "github.com/storacha/sprue/pkg/store/consumer/memory"
-// 	customermemory "github.com/storacha/sprue/pkg/store/customer/memory"
-// 	subscriptionmemory "github.com/storacha/sprue/pkg/store/subscription/memory"
-// 	"github.com/stretchr/testify/require"
-// 	"go.uber.org/zap/zaptest"
-// )
+type providerAddDeps struct {
+	provisioningSvc *provisioning.Service
+	billingSvc      *billing.Service
+	customerStore   *customer_store.Store
+}
 
-// func setupProviderAdd(t *testing.T, addCustomer bool) (*identity.Identity, did.DID, did.DID, *provisioning.Service, *billing.Service) {
-// 	t.Helper()
+func setupProviderAdd(t *testing.T, providerDID did.DID) *providerAddDeps {
+	t.Helper()
+	customerStore := customer_store.New()
+	provisioningSvc := provisioning.NewService(
+		[]did.DID{providerDID},
+		consumer_store.New(),
+		subscription_store.New(),
+	)
+	billingSvc := billing.NewService(customerStore)
+	return &providerAddDeps{
+		provisioningSvc: provisioningSvc,
+		billingSvc:      billingSvc,
+		customerStore:   customerStore,
+	}
+}
 
-// 	serviceID := newTestIdentity(t)
-// 	providerDID := serviceID.Signer.DID()
-// 	account := mustMailtoDID(t, "alice@example.com")
-// 	product, err := did.Parse("did:web:free.web3.storage")
-// 	require.NoError(t, err)
+// invokeProviderAdd builds a /provider/add invocation with the account as the
+// subject (matching the handler's expectation), plus a signed response.
+func invokeProviderAdd(
+	t *testing.T,
+	ctx context.Context,
+	agent principal.Signer,
+	uploadService principal.Signer,
+	account ucan.Principal,
+	args *providercaps.AddArguments,
+) (execution.Request, *execution.ExecResponse) {
+	t.Helper()
+	inv, err := providercaps.Add.Invoke(
+		agent,
+		account,
+		args,
+		invocation.WithAudience(uploadService),
+	)
+	require.NoError(t, err)
+	req := execution.NewRequest(ctx, inv)
+	res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
+	require.NoError(t, err)
+	return req, res
+}
 
-// 	customerStore := customermemory.New()
-// 	if addCustomer {
-// 		err = customerStore.Add(context.Background(), account, nil, product, nil, nil)
-// 		require.NoError(t, err)
-// 	}
+func TestProviderAddHandler(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	ctx := t.Context()
 
-// 	provisioningSvc := provisioning.NewService(
-// 		[]did.DID{providerDID},
-// 		consumermemory.New(),
-// 		subscriptionmemory.New(),
-// 	)
+	uploadService := testutil.WebService
 
-// 	billingSvc := billing.NewService(customerStore)
+	t.Run("success with payment plan", func(t *testing.T) {
+		serviceProvider := testutil.RandomSigner(t)
+		deps := setupProviderAdd(t, serviceProvider.DID())
 
-// 	return serviceID, providerDID, account, provisioningSvc, billingSvc
-// }
+		account := testutil.Must(didmailto.New("alice@example.com"))(t)
+		product := testutil.Must(did.Parse("did:web:free.web3.storage"))(t)
+		require.NoError(t, deps.customerStore.Add(ctx, account, nil, product, nil, nil))
 
-// func TestProviderAddHandler(t *testing.T) {
-// 	logger := zaptest.NewLogger(t)
+		handler := handlers.NewProviderAddHandler(
+			config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: false},
+			deps.provisioningSvc, deps.billingSvc, logger,
+		)
 
-// 	t.Run("success with payment plan", func(t *testing.T) {
-// 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: false}
-// 		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, true)
-// 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
+		space := testutil.RandomSigner(t)
+		agent := testutil.RandomSigner(t)
+		req, res := invokeProviderAdd(t, ctx, agent, uploadService, account,
+			&providercaps.AddArguments{
+				Provider: serviceProvider.DID(),
+				Consumer: space.DID(),
+			},
+		)
 
-// 		space := newTestIdentity(t)
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		cap := ucan.NewCapability(
-// 			provider.AddAbility,
-// 			account.String(),
-// 			provider.AddCaveats{
-// 				Provider: providerDID.String(),
-// 				Consumer: space.DID(),
-// 			},
-// 		)
+		o, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+		require.NotNil(t, o)
 
-// 		agent, err := identity.New("")
-// 		require.NoError(t, err)
+		ok := providercaps.AddOK{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(o), &ok))
+		require.NotEmpty(t, ok.ID)
+	})
 
-// 		inv, err := invocation.Invoke(agent.Signer, serviceID.Signer, cap)
-// 		require.NoError(t, err)
+	t.Run("success skipping payment plan check", func(t *testing.T) {
+		serviceProvider := testutil.RandomSigner(t)
+		deps := setupProviderAdd(t, serviceProvider.DID())
 
-// 		res, _, err := handler(context.Background(), cap, inv, nil)
-// 		require.NoError(t, err)
+		// No customer added — but payment plan check is skipped.
+		handler := handlers.NewProviderAddHandler(
+			config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true},
+			deps.provisioningSvc, deps.billingSvc, logger,
+		)
 
-// 		ok, fail := result.Unwrap(res)
-// 		require.Nil(t, fail)
-// 		require.NotEmpty(t, ok.Id)
-// 	})
+		account := testutil.Must(didmailto.New("alice@example.com"))(t)
+		space := testutil.RandomSigner(t)
+		agent := testutil.RandomSigner(t)
+		req, res := invokeProviderAdd(t, ctx, agent, uploadService, account,
+			&providercaps.AddArguments{
+				Provider: serviceProvider.DID(),
+				Consumer: space.DID(),
+			},
+		)
 
-// 	t.Run("success skipping payment plan check", func(t *testing.T) {
-// 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
-// 		// No customer added — but payment plan check is skipped
-// 		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
-// 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		space := newTestIdentity(t)
+		o, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+		ok := providercaps.AddOK{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(o), &ok))
+		require.NotEmpty(t, ok.ID)
+	})
 
-// 		cap := ucan.NewCapability(
-// 			provider.AddAbility,
-// 			account.String(),
-// 			provider.AddCaveats{
-// 				Provider: providerDID.String(),
-// 				Consumer: space.DID(),
-// 			},
-// 		)
+	t.Run("invalid account DID", func(t *testing.T) {
+		serviceProvider := testutil.RandomSigner(t)
+		deps := setupProviderAdd(t, serviceProvider.DID())
 
-// 		agent, err := identity.New("")
-// 		require.NoError(t, err)
+		handler := handlers.NewProviderAddHandler(
+			config.DeploymentConfig{},
+			deps.provisioningSvc, deps.billingSvc, logger,
+		)
 
-// 		inv, err := invocation.Invoke(agent.Signer, serviceID.Signer, cap)
-// 		require.NoError(t, err)
+		// Subject is a did:key (not a did:mailto), so didmailto.Parse rejects it.
+		notAMailto := testutil.RandomSigner(t)
+		space := testutil.RandomSigner(t)
+		agent := testutil.RandomSigner(t)
+		req, res := invokeProviderAdd(t, ctx, agent, uploadService, notAMailto,
+			&providercaps.AddArguments{
+				Provider: serviceProvider.DID(),
+				Consumer: space.DID(),
+			},
+		)
 
-// 		res, _, err := handler(context.Background(), cap, inv, nil)
-// 		require.NoError(t, err)
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		ok, fail := result.Unwrap(res)
-// 		require.Nil(t, fail)
-// 		require.NotEmpty(t, ok.Id)
-// 	})
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.NotNil(t, fail)
 
-// 	t.Run("invalid account DID", func(t *testing.T) {
-// 		deployCfg := config.DeploymentConfig{}
-// 		serviceID, providerDID, _, provisioningSvc, billingSvc := setupProviderAdd(t, false)
-// 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
+		model := edm.ErrorModel{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(fail), &model))
+		require.Equal(t, handlers.InvalidAccountErrorName, model.Name())
+	})
 
-// 		space := newTestIdentity(t)
+	t.Run("missing payment plan", func(t *testing.T) {
+		serviceProvider := testutil.RandomSigner(t)
+		deps := setupProviderAdd(t, serviceProvider.DID())
 
-// 		cap := ucan.NewCapability(
-// 			provider.AddAbility,
-// 			"not-a-mailto-did",
-// 			provider.AddCaveats{
-// 				Provider: providerDID.String(),
-// 				Consumer: space.DID(),
-// 			},
-// 		)
+		// No customer added — payment plan check fails with ErrMissingPaymentPlan.
+		handler := handlers.NewProviderAddHandler(
+			config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: false},
+			deps.provisioningSvc, deps.billingSvc, logger,
+		)
 
-// 		agent, err := identity.New("")
-// 		require.NoError(t, err)
+		account := testutil.Must(didmailto.New("alice@example.com"))(t)
+		space := testutil.RandomSigner(t)
+		agent := testutil.RandomSigner(t)
+		req, res := invokeProviderAdd(t, ctx, agent, uploadService, account,
+			&providercaps.AddArguments{
+				Provider: serviceProvider.DID(),
+				Consumer: space.DID(),
+			},
+		)
 
-// 		inv, err := invocation.Invoke(agent.Signer, serviceID.Signer, cap)
-// 		require.NoError(t, err)
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		res, _, err := handler(context.Background(), cap, inv, nil)
-// 		require.NoError(t, err)
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.NotNil(t, fail)
 
-// 		_, fail := result.Unwrap(res)
-// 		require.NotNil(t, fail)
-// 	})
+		model := edm.ErrorModel{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(fail), &model))
+		require.Equal(t, handlers.AccountPlanMissingErrorName, model.Name())
+	})
 
-// 	t.Run("invalid provider DID", func(t *testing.T) {
-// 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
-// 		serviceID, _, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
-// 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
+	t.Run("provider not allowed", func(t *testing.T) {
+		serviceProvider := testutil.RandomSigner(t)
+		deps := setupProviderAdd(t, serviceProvider.DID())
 
-// 		space := newTestIdentity(t)
+		handler := handlers.NewProviderAddHandler(
+			config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true},
+			deps.provisioningSvc, deps.billingSvc, logger,
+		)
 
-// 		cap := ucan.NewCapability(
-// 			provider.AddAbility,
-// 			account.String(),
-// 			provider.AddCaveats{
-// 				Provider: "bad-provider",
-// 				Consumer: space.DID(),
-// 			},
-// 		)
+		// Args reference a different provider than the one allowed in setup.
+		otherProvider := testutil.RandomSigner(t)
+		account := testutil.Must(didmailto.New("alice@example.com"))(t)
+		space := testutil.RandomSigner(t)
+		agent := testutil.RandomSigner(t)
+		req, res := invokeProviderAdd(t, ctx, agent, uploadService, account,
+			&providercaps.AddArguments{
+				Provider: otherProvider.DID(),
+				Consumer: space.DID(),
+			},
+		)
 
-// 		agent, err := identity.New("")
-// 		require.NoError(t, err)
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		inv, err := invocation.Invoke(agent.Signer, serviceID.Signer, cap)
-// 		require.NoError(t, err)
+		_, fail := result.Unwrap(res.Receipt().Out())
+		require.NotNil(t, fail)
 
-// 		res, _, err := handler(context.Background(), cap, inv, nil)
-// 		require.NoError(t, err)
-
-// 		_, fail := result.Unwrap(res)
-// 		require.NotNil(t, fail)
-// 	})
-
-// 	t.Run("invalid space DID", func(t *testing.T) {
-// 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
-// 		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
-// 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
-
-// 		cap := ucan.NewCapability(
-// 			provider.AddAbility,
-// 			account.String(),
-// 			provider.AddCaveats{
-// 				Provider: providerDID.String(),
-// 				Consumer: "bad-space",
-// 			},
-// 		)
-
-// 		agent, err := identity.New("")
-// 		require.NoError(t, err)
-
-// 		inv, err := invocation.Invoke(agent.Signer, serviceID.Signer, cap)
-// 		require.NoError(t, err)
-
-// 		res, _, err := handler(context.Background(), cap, inv, nil)
-// 		require.NoError(t, err)
-
-// 		_, fail := result.Unwrap(res)
-// 		require.NotNil(t, fail)
-// 	})
-
-// 	t.Run("missing payment plan", func(t *testing.T) {
-// 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: false}
-// 		// No customer added — payment plan check will fail
-// 		serviceID, providerDID, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
-// 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
-
-// 		space := newTestIdentity(t)
-
-// 		cap := ucan.NewCapability(
-// 			provider.AddAbility,
-// 			account.String(),
-// 			provider.AddCaveats{
-// 				Provider: providerDID.String(),
-// 				Consumer: space.DID(),
-// 			},
-// 		)
-
-// 		agent, err := identity.New("")
-// 		require.NoError(t, err)
-
-// 		inv, err := invocation.Invoke(agent.Signer, serviceID.Signer, cap)
-// 		require.NoError(t, err)
-
-// 		res, _, err := handler(context.Background(), cap, inv, nil)
-// 		require.NoError(t, err)
-
-// 		_, fail := result.Unwrap(res)
-// 		require.NotNil(t, fail)
-// 	})
-
-// 	t.Run("provider not allowed", func(t *testing.T) {
-// 		deployCfg := config.DeploymentConfig{AllowProvisionWithoutPaymentPlan: true}
-// 		serviceID, _, account, provisioningSvc, billingSvc := setupProviderAdd(t, false)
-// 		handler := ProviderAddHandler(deployCfg, provisioningSvc, billingSvc, logger)
-
-// 		space := newTestIdentity(t)
-// 		otherProvider := newTestIdentity(t)
-
-// 		cap := ucan.NewCapability(
-// 			provider.AddAbility,
-// 			account.String(),
-// 			provider.AddCaveats{
-// 				Provider: otherProvider.DID(),
-// 				Consumer: space.DID(),
-// 			},
-// 		)
-
-// 		agent, err := identity.New("")
-// 		require.NoError(t, err)
-
-// 		inv, err := invocation.Invoke(agent.Signer, serviceID.Signer, cap)
-// 		require.NoError(t, err)
-
-// 		_, _, err = handler(context.Background(), cap, inv, nil)
-// 		require.Error(t, err)
-// 		require.Contains(t, err.Error(), "provisioning service")
-// 	})
-// }
+		model := edm.ErrorModel{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(fail), &model))
+		require.Equal(t, provisioning.ProviderNotAllowedErrorName, model.Name())
+	})
+}

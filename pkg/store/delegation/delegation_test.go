@@ -67,7 +67,7 @@ func makeDelegation(t *testing.T, audience ucan.Principal) ucan.Delegation {
 		testutil.Alice,
 		audience,
 		testutil.Alice,
-		"test/delegate",
+		"/test/delegate",
 	)
 	require.NoError(t, err)
 	return dlg

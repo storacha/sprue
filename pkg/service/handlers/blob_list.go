@@ -1,79 +1,55 @@
 package handlers
 
-// import (
-// 	"context"
-// 	"fmt"
+import (
+	"fmt"
 
-// 	"github.com/fil-forge/ucantone/did"
-// 	"github.com/fil-forge/ucantone/errors"
-// 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-// 	"github.com/storacha/go-libstoracha/capabilities/space/blob"
-// 	"github.com/storacha/go-ucanto/core/invocation"
-// 	"github.com/storacha/go-ucanto/core/receipt/fx"
-// 	"github.com/storacha/go-ucanto/core/result"
-// 	"github.com/storacha/go-ucanto/core/result/failure"
-// 	"github.com/storacha/go-ucanto/server"
-// 	"github.com/storacha/go-ucanto/ucan"
-// 	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
-// 	"go.uber.org/zap"
-// )
+	blobcaps "github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	blobregistry "github.com/storacha/sprue/pkg/store/blob_registry"
+	"go.uber.org/zap"
+)
 
-// // WithSpaceBlobListMethod registers the space/blob/list handler.
-// // This handler lists the blobs of a space.
-// func WithSpaceBlobListMethod(blobRegistry blobregistry.Store, logger *zap.Logger) server.Option {
-// 	return server.WithServiceMethod(
-// 		blob.ListAbility,
-// 		server.Provide(blob.List, SpaceBlobListHandler(blobRegistry, logger)),
-// 	)
-// }
+func NewBlobListHandler(blobRegistry blobregistry.Store, logger *zap.Logger) Handler {
+	log := logger.With(zap.String("handler", blobcaps.ListCommand))
+	return Handler{
+		Capability: blobcaps.List,
+		Handler: bindexec.NewHandler(func(
+			req *bindexec.Request[*blobcaps.ListArguments],
+			res *bindexec.Response[*blobcaps.ListOK],
+		) error {
+			args := req.Task().BindArguments()
+			space := req.Invocation().Subject()
+			log := log.With(zap.Stringer("space", space.DID()))
 
-// func BlobListHandler(blobRegistry blobregistry.Store, logger *zap.Logger) server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure] {
-// 	log := logger.With(zap.String("handler", blob.ListAbility))
-// 	return server.HandlerFunc[blob.ListCaveats, blob.ListOk, failure.IPLDBuilderFailure](
-// 		func(ctx context.Context,
-// 			cap ucan.Capability[blob.ListCaveats],
-// 			inv invocation.Invocation,
-// 			iCtx server.InvocationContext,
-// 		) (result.Result[blob.ListOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-// 			args := cap.Nb()
-// 			log := log.With(zap.String("space", cap.With()))
+			var opts []blobregistry.ListOption
+			if args.Size != nil {
+				log = log.With(zap.Int64("size", *args.Size))
+				opts = append(opts, blobregistry.WithListLimit(int(*args.Size)))
+			}
+			if args.Cursor != nil {
+				log = log.With(zap.String("cursor", *args.Cursor))
+				opts = append(opts, blobregistry.WithListCursor(*args.Cursor))
+			}
+			log.Debug("listing blobs")
 
-// 			var opts []blobregistry.ListOption
-// 			if args.Size != nil {
-// 				log = log.With(zap.Uint64("size", *args.Size))
-// 				opts = append(opts, blobregistry.WithListLimit(int(*args.Size)))
-// 			}
-// 			if args.Cursor != nil {
-// 				log = log.With(zap.String("cursor", *args.Cursor))
-// 				opts = append(opts, blobregistry.WithListCursor(*args.Cursor))
-// 			}
-// 			log.Debug("listing blobs")
+			page, err := blobRegistry.List(req.Context(), space.DID(), opts...)
+			if err != nil {
+				log.Error("failed to list blobs", zap.Error(err))
+				return fmt.Errorf("listing blobs: %w", err)
+			}
 
-// 			space, err := did.Parse(cap.With())
-// 			if err != nil {
-// 				return result.Error[blob.ListOk, failure.IPLDBuilderFailure](
-// 					errors.New(InvalidSpaceErrorName, "invalid space DID: %v", err),
-// 				), nil, nil
-// 			}
+			results := make([]blobcaps.ListBlobItem, 0, len(page.Results))
+			for _, r := range page.Results {
+				results = append(results, blobcaps.ListBlobItem{
+					Blob:       r.Blob,
+					InsertedAt: r.InsertedAt.Unix(),
+				})
+			}
 
-// 			page, err := blobRegistry.List(ctx, space, opts...)
-// 			if err != nil {
-// 				log.Error("failed to list blobs", zap.Error(err))
-// 				return nil, nil, fmt.Errorf("listing blobs: %w", err)
-// 			}
-
-// 			results := make([]blob.ListBlobItem, 0, len(page.Results))
-// 			for _, r := range page.Results {
-// 				results = append(results, blob.ListBlobItem{
-// 					Blob:       r.Blob,
-// 					Cause:      cidlink.Link{Cid: r.Cause},
-// 					InsertedAt: r.InsertedAt,
-// 				})
-// 			}
-
-// 			return result.Ok[blob.ListOk, failure.IPLDBuilderFailure](blob.ListOk{
-// 				Results: results,
-// 				Cursor:  page.Cursor,
-// 			}), nil, nil
-// 		})
-// }
+			return res.SetSuccess(&blobcaps.ListOK{
+				Cursor:  page.Cursor,
+				Results: results,
+			})
+		}),
+	}
+}

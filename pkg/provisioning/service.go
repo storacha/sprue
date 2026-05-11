@@ -78,9 +78,9 @@ func (s *Service) ListServiceProviders(ctx context.Context, space SpaceDID) ([]S
 }
 
 // Provision provisions a service provider for a consumer (space) on behalf of
-// a customer (account). It may return [customer.ErrCustomerNotFound]
-// if the customer does not exist and [consumer.ErrConsumerExists] if the
-// consumer is already provisioned for the provider.
+// a customer (account). It may return [ErrProviderNotAllowed] if the requested
+// provider is not on the list, and [consumer.ErrConsumerExists] if the consumer
+// is already provisioned for the provider.
 func (s *Service) Provision(ctx context.Context, customer AccountDID, consumer SpaceDID, provider ServiceDID, cause cid.Cid) (SubscriptionID, error) {
 	// Ensure the provider is allowed.
 	if !slices.ContainsFunc(s.providers, func(p ServiceDID) bool {

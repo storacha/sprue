@@ -169,5 +169,5 @@ func signerFromEd25519PEMFile(path string) (principal.Signer, error) {
 		return nil, fmt.Errorf("no PRIVATE KEY block found in PEM file")
 	}
 
-	return ed25519.FromRaw(*privateKey)
+	return ed25519.FromRaw(privateKey.Seed())
 }

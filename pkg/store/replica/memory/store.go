@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fil-forge/libforge/bytemap"
 	"github.com/fil-forge/ucantone/did"
 	cid "github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/bytemap"
 	"github.com/storacha/sprue/pkg/store/replica"
 )
 

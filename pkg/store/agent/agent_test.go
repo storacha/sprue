@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"testing"
 
-	caps "github.com/fil-forge/libforge/capabilities"
 	ucancap "github.com/fil-forge/libforge/capabilities/ucan"
 	"github.com/fil-forge/ucantone/ipld"
 	"github.com/fil-forge/ucantone/ipld/datamodel"
@@ -77,7 +76,7 @@ func makeInvocation(t *testing.T) ucan.Invocation {
 	inv, err := invocation.Invoke(
 		testutil.Alice,
 		testutil.Alice,
-		"test/invoke",
+		"/test/invoke",
 		datamodel.Map{},
 		invocation.WithAudience(testutil.Bob),
 	)
@@ -90,7 +89,7 @@ func makeReceipt(t *testing.T, inv ucan.Invocation) ucan.Receipt {
 	rcpt, err := receipt.Issue(
 		testutil.Alice,
 		inv.Task().Link(),
-		result.OK[caps.Unit, ipld.Any](caps.Unit{}),
+		result.OK[ipld.Any, ipld.Any](datamodel.Map{}),
 	)
 	require.NoError(t, err)
 	return rcpt

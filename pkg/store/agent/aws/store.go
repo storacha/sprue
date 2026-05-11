@@ -14,12 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/fil-forge/libforge/jobqueue"
 	"github.com/fil-forge/ucantone/ipld/codec/dagcbor"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
 	cid "github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/jobqueue"
 	"github.com/storacha/sprue/pkg/store/agent"
 )
 

@@ -8,9 +8,9 @@ import (
 	"io"
 	"os"
 
+	signer "github.com/fil-forge/ucantone/principal/ed25519"
+	verifier "github.com/fil-forge/ucantone/principal/ed25519/verifier"
 	"github.com/spf13/cobra"
-	signer "github.com/storacha/go-ucanto/principal/ed25519/signer"
-	verifier "github.com/storacha/go-ucanto/principal/ed25519/verifier"
 )
 
 var parseCmd = &cobra.Command{
@@ -61,7 +61,7 @@ var parseCmd = &cobra.Command{
 				return fmt.Errorf("PKCS#8 private key does not implement ed25519")
 			}
 
-			key, err := signer.FromRaw(ed25519SK)
+			key, err := signer.FromRaw(ed25519SK.Seed())
 			if err != nil {
 				return fmt.Errorf("decoding ed25519 private key: %w", err)
 			}

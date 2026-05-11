@@ -1,149 +1,165 @@
 package handlers_test
 
-// import (
-// 	"testing"
+import (
+	"context"
+	"testing"
 
-// 	"github.com/ipfs/go-cid"
-// 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-// 	"github.com/storacha/go-libstoracha/capabilities/upload/shard"
-// 	"github.com/storacha/go-ucanto/core/result"
-// 	"github.com/storacha/go-ucanto/core/result/failure/datamodel"
-// 	"github.com/storacha/sprue/internal/testutil"
-// 	"github.com/storacha/sprue/pkg/service/handlers"
-// 	uploadmemory "github.com/storacha/sprue/pkg/store/upload/memory"
-// 	"github.com/stretchr/testify/require"
-// 	"go.uber.org/zap/zaptest"
-// )
+	shardcaps "github.com/fil-forge/libforge/capabilities/upload/shard"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/ipld/datamodel"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/result"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/ipfs/go-cid"
+	"github.com/storacha/sprue/internal/testutil"
+	"github.com/storacha/sprue/pkg/service/handlers"
+	upload_store "github.com/storacha/sprue/pkg/store/upload/memory"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
+)
 
-// func TestUploadShardListHandler(t *testing.T) {
-// 	logger := zaptest.NewLogger(t)
-// 	ctx := t.Context()
+// invokeUploadShardList builds an /upload/shard/list invocation with the given
+// args and a signed response ready for the handler.
+func invokeUploadShardList(
+	t *testing.T,
+	ctx context.Context,
+	agent principal.Signer,
+	uploadService principal.Signer,
+	space principal.Signer,
+	args *shardcaps.ListArguments,
+) (execution.Request, *execution.ExecResponse) {
+	t.Helper()
+	inv, err := shardcaps.List.Invoke(
+		agent,
+		space,
+		args,
+		invocation.WithAudience(uploadService),
+	)
+	require.NoError(t, err)
+	req := execution.NewRequest(ctx, inv)
+	res, err := execution.NewResponse(req.Invocation().Task().Link(), execution.WithSigner(uploadService))
+	require.NoError(t, err)
+	return req, res
+}
 
-// 	uploadService := testutil.WebService
-// 	alice := testutil.Alice
+func TestUploadShardListHandler(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	ctx := t.Context()
 
-// 	t.Run("invalid space DID", func(t *testing.T) {
-// 		store := uploadmemory.New()
-// 		handler := handlers.UploadShardListHandler(store, logger)
+	uploadService := testutil.WebService
+	alice := testutil.Alice
 
-// 		root := cidlink.Link{Cid: testutil.RandomCID(t)}
-// 		caveats := shard.ListCaveats{Root: root}
-// 		inv, err := shard.List.Invoke(alice, uploadService, "not-a-did", caveats)
-// 		require.NoError(t, err)
+	t.Run("empty shards", func(t *testing.T) {
+		store := upload_store.New()
+		handler := handlers.NewUploadShardListHandler(store, logger)
 
-// 		cap := shard.List.New("not-a-did", caveats)
+		space := testutil.RandomSigner(t)
+		root := testutil.RandomCID(t)
 
-// 		res, _, err := handler(ctx, cap, inv, nil)
-// 		require.NoError(t, err)
+		// Upload exists with no shards.
+		require.NoError(t, store.Upsert(ctx, space.DID(), root, nil, nil, testutil.RandomCID(t)))
 
-// 		_, fail := result.Unwrap(res)
-// 		require.NotNil(t, fail)
+		req, res := invokeUploadShardList(t, ctx, alice, uploadService, space, &shardcaps.ListArguments{Root: root})
 
-// 		model := datamodel.Bind(testutil.Must(fail.ToIPLD())(t))
-// 		require.NotNil(t, model.Name)
-// 		require.Equal(t, handlers.InvalidSpaceErrorName, *model.Name)
-// 	})
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 	t.Run("empty shards", func(t *testing.T) {
-// 		store := uploadmemory.New()
-// 		handler := handlers.UploadShardListHandler(store, logger)
+		o, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+		require.NotNil(t, o)
 
-// 		space := testutil.RandomSigner(t)
-// 		root := testutil.RandomCID(t)
+		ok := shardcaps.ListOK{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(o), &ok))
+		require.Empty(t, ok.Results)
+	})
 
-// 		// Create upload with no shards
-// 		err := store.Upsert(ctx, space.DID(), root, nil, testutil.RandomCID(t))
-// 		require.NoError(t, err)
+	t.Run("lists shards", func(t *testing.T) {
+		store := upload_store.New()
+		handler := handlers.NewUploadShardListHandler(store, logger)
 
-// 		rootLink := cidlink.Link{Cid: root}
-// 		caveats := shard.ListCaveats{Root: rootLink}
-// 		inv, err := shard.List.Invoke(alice, uploadService, space.DID().String(), caveats)
-// 		require.NoError(t, err)
+		space := testutil.RandomSigner(t)
+		root := testutil.RandomCID(t)
+		shard1 := testutil.RandomCID(t)
+		shard2 := testutil.RandomCID(t)
 
-// 		cap := shard.List.New(space.DID().String(), caveats)
+		require.NoError(t, store.Upsert(ctx, space.DID(), root, nil, []cid.Cid{shard1, shard2}, testutil.RandomCID(t)))
 
-// 		res, _, err := handler(ctx, cap, inv, nil)
-// 		require.NoError(t, err)
+		req, res := invokeUploadShardList(t, ctx, alice, uploadService, space, &shardcaps.ListArguments{Root: root})
 
-// 		ok, fail := result.Unwrap(res)
-// 		require.Nil(t, fail)
-// 		require.Empty(t, ok.Results)
-// 	})
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 	t.Run("lists shards", func(t *testing.T) {
-// 		store := uploadmemory.New()
-// 		handler := handlers.UploadShardListHandler(store, logger)
+		o, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+		ok := shardcaps.ListOK{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(o), &ok))
+		require.Len(t, ok.Results, 2)
 
-// 		space := testutil.RandomSigner(t)
-// 		root := testutil.RandomCID(t)
-// 		shard1 := testutil.RandomCID(t)
-// 		shard2 := testutil.RandomCID(t)
+		got := map[string]bool{}
+		for _, c := range ok.Results {
+			got[c.String()] = true
+		}
+		require.True(t, got[shard1.String()])
+		require.True(t, got[shard2.String()])
+	})
 
-// 		err := store.Upsert(ctx, space.DID(), root, []cid.Cid{shard1, shard2}, testutil.RandomCID(t))
-// 		require.NoError(t, err)
+	t.Run("with size limit", func(t *testing.T) {
+		store := upload_store.New()
+		handler := handlers.NewUploadShardListHandler(store, logger)
 
-// 		rootLink := cidlink.Link{Cid: root}
-// 		caveats := shard.ListCaveats{Root: rootLink}
-// 		inv, err := shard.List.Invoke(alice, uploadService, space.DID().String(), caveats)
-// 		require.NoError(t, err)
+		space := testutil.RandomSigner(t)
+		root := testutil.RandomCID(t)
+		shard1 := testutil.RandomCID(t)
+		shard2 := testutil.RandomCID(t)
+		shard3 := testutil.RandomCID(t)
+		require.NoError(t, store.Upsert(ctx, space.DID(), root, nil, []cid.Cid{shard1, shard2, shard3}, testutil.RandomCID(t)))
 
-// 		cap := shard.List.New(space.DID().String(), caveats)
+		size := int64(2)
+		req, res := invokeUploadShardList(t, ctx, alice, uploadService, space, &shardcaps.ListArguments{Root: root, Size: &size})
 
-// 		res, _, err := handler(ctx, cap, inv, nil)
-// 		require.NoError(t, err)
+		err := handler.Handler(req, res)
+		require.NoError(t, err)
 
-// 		ok, fail := result.Unwrap(res)
-// 		require.Nil(t, fail)
-// 		require.Len(t, ok.Results, 2)
-// 	})
+		o, fail := result.Unwrap(res.Receipt().Out())
+		require.Nil(t, fail)
+		ok := shardcaps.ListOK{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(o), &ok))
+		require.Len(t, ok.Results, 2)
+		require.NotNil(t, ok.Cursor)
+	})
 
-// 	t.Run("with cursor pagination", func(t *testing.T) {
-// 		store := uploadmemory.New()
-// 		handler := handlers.UploadShardListHandler(store, logger)
+	t.Run("with cursor pagination", func(t *testing.T) {
+		store := upload_store.New()
+		handler := handlers.NewUploadShardListHandler(store, logger)
 
-// 		space := testutil.RandomSigner(t)
-// 		root := testutil.RandomCID(t)
-// 		shard1 := testutil.RandomCID(t)
-// 		shard2 := testutil.RandomCID(t)
-// 		shard3 := testutil.RandomCID(t)
+		space := testutil.RandomSigner(t)
+		root := testutil.RandomCID(t)
+		shard1 := testutil.RandomCID(t)
+		shard2 := testutil.RandomCID(t)
+		shard3 := testutil.RandomCID(t)
+		require.NoError(t, store.Upsert(ctx, space.DID(), root, nil, []cid.Cid{shard1, shard2, shard3}, testutil.RandomCID(t)))
 
-// 		err := store.Upsert(ctx, space.DID(), root, []cid.Cid{shard1, shard2, shard3}, testutil.RandomCID(t))
-// 		require.NoError(t, err)
+		size := int64(1)
+		req1, res1 := invokeUploadShardList(t, ctx, alice, uploadService, space, &shardcaps.ListArguments{Root: root, Size: &size})
+		require.NoError(t, handler.Handler(req1, res1))
 
-// 		rootLink := cidlink.Link{Cid: root}
+		o1, fail := result.Unwrap(res1.Receipt().Out())
+		require.Nil(t, fail)
+		ok1 := shardcaps.ListOK{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(o1), &ok1))
+		require.Len(t, ok1.Results, 1)
+		require.NotNil(t, ok1.Cursor)
 
-// 		// First page: size 1
-// 		size := uint64(1)
-// 		caveats1 := shard.ListCaveats{Root: rootLink, Size: &size}
-// 		inv1, err := shard.List.Invoke(alice, uploadService, space.DID().String(), caveats1)
-// 		require.NoError(t, err)
+		// Second page using cursor.
+		cursor := *ok1.Cursor
+		req2, res2 := invokeUploadShardList(t, ctx, alice, uploadService, space, &shardcaps.ListArguments{Root: root, Cursor: &cursor, Size: &size})
+		require.NoError(t, handler.Handler(req2, res2))
 
-// 		cap1 := shard.List.New(space.DID().String(), caveats1)
-
-// 		res1, _, err := handler(ctx, cap1, inv1, nil)
-// 		require.NoError(t, err)
-
-// 		ok1, fail := result.Unwrap(res1)
-// 		require.Nil(t, fail)
-// 		require.Len(t, ok1.Results, 1)
-// 		require.NotNil(t, ok1.Cursor)
-
-// 		// Second page using cursor
-// 		cursor := *ok1.Cursor
-// 		caveats2 := shard.ListCaveats{Root: rootLink, Cursor: &cursor, Size: &size}
-// 		inv2, err := shard.List.Invoke(alice, uploadService, space.DID().String(), caveats2)
-// 		require.NoError(t, err)
-
-// 		cap2 := shard.List.New(space.DID().String(), caveats2)
-
-// 		res2, _, err := handler(ctx, cap2, inv2, nil)
-// 		require.NoError(t, err)
-
-// 		ok2, fail := result.Unwrap(res2)
-// 		require.Nil(t, fail)
-// 		require.Len(t, ok2.Results, 1)
-
-// 		// Results should be different
-// 		require.NotEqual(t, ok1.Results[0].String(), ok2.Results[0].String())
-// 	})
-// }
+		o2, fail := result.Unwrap(res2.Receipt().Out())
+		require.Nil(t, fail)
+		ok2 := shardcaps.ListOK{}
+		require.NoError(t, datamodel.Rebind(datamodel.NewAny(o2), &ok2))
+		require.Len(t, ok2.Results, 1)
+		require.NotEqual(t, ok1.Results[0].String(), ok2.Results[0].String())
+	})
+}

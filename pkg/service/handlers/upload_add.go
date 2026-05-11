@@ -1,84 +1,54 @@
 package handlers
 
-// import (
-// 	"context"
-// 	"fmt"
+import (
+	"fmt"
 
-// 	"github.com/fil-forge/ucantone/did"
-// 	"github.com/fil-forge/ucantone/errors"
-// 	"github.com/ipfs/go-cid"
-// 	"github.com/storacha/go-libstoracha/capabilities/upload"
-// 	"github.com/storacha/go-ucanto/core/invocation"
-// 	"github.com/storacha/go-ucanto/core/receipt/fx"
-// 	"github.com/storacha/go-ucanto/core/result"
-// 	"github.com/storacha/go-ucanto/core/result/failure"
-// 	"github.com/storacha/go-ucanto/server"
-// 	"github.com/storacha/go-ucanto/ucan"
-// 	"github.com/storacha/sprue/pkg/internal/ipldutil"
-// 	upload_store "github.com/storacha/sprue/pkg/store/upload"
-// 	"go.uber.org/zap"
-// )
+	uploadcaps "github.com/fil-forge/libforge/capabilities/upload"
+	"github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/storacha/sprue/pkg/provisioning"
+	upload_store "github.com/storacha/sprue/pkg/store/upload"
+	"go.uber.org/zap"
+)
 
-// const InvalidSpaceErrorName = "InvalidSpace"
+// This handler registers an upload (root CID + shards mapping).
+func NewUploadAddHandler(provisioningSvc *provisioning.Service, uploadStore upload_store.Store, logger *zap.Logger) Handler {
+	log := logger.With(zap.String("handler", uploadcaps.AddCommand))
+	return Handler{
+		Capability: uploadcaps.Add,
+		Handler: bindexec.NewHandler(func(
+			req *bindexec.Request[*uploadcaps.AddArguments],
+			res *bindexec.Response[*uploadcaps.AddOK],
+		) error {
+			args := req.Task().BindArguments()
+			space := req.Invocation().Subject()
+			cause := req.Invocation().Task().Link()
+			log := log.With(
+				zap.Stringer("space", space.DID()),
+				zap.Stringer("root", args.Root),
+			)
+			if args.Index != nil {
+				log = log.With(zap.Stringer("index", *args.Index))
+			}
+			log.Debug("adding upload")
 
-// // WithUploadAddMethod registers the upload/add handler.
-// // This handler registers an upload (root CID + shards mapping).
-// func WithUploadAddMethod(uploadStore upload_store.Store, logger *zap.Logger) server.Option {
-// 	return server.WithServiceMethod(
-// 		upload.AddAbility,
-// 		server.Provide(upload.Add, UploadAddHandler(uploadStore, logger)),
-// 	)
-// }
+			provs, err := provisioningSvc.ListServiceProviders(req.Context(), space.DID())
+			if err != nil {
+				log.Error("failed to list service providers", zap.Error(err))
+				return fmt.Errorf("listing service providers: %w", err)
+			}
+			if len(provs) == 0 {
+				log.Warn("space has no service provider")
+				return res.SetFailure(errors.New(InsufficientStorageErrorName, "space has no service provider"))
+			}
 
-// func UploadAddHandler(uploadStore upload_store.Store, logger *zap.Logger) server.HandlerFunc[upload.AddCaveats, upload.AddOk, failure.IPLDBuilderFailure] {
-// 	log := logger.With(zap.String("handler", upload.AddAbility))
-// 	return server.HandlerFunc[upload.AddCaveats, upload.AddOk, failure.IPLDBuilderFailure](
-// 		func(ctx context.Context,
-// 			cap ucan.Capability[upload.AddCaveats],
-// 			inv invocation.Invocation,
-// 			iCtx server.InvocationContext,
-// 		) (result.Result[upload.AddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-// 			log := log.With(
-// 				zap.String("space", cap.With()),
-// 				zap.Stringer("root", cap.Nb().Root),
-// 				zap.Int("shards", len(cap.Nb().Shards)),
-// 			)
-// 			log.Debug("adding upload")
+			err = uploadStore.Upsert(req.Context(), space.DID(), args.Root, args.Index, args.Shards, cause)
+			if err != nil {
+				log.Error("failed to upsert upload", zap.Error(err))
+				return fmt.Errorf("upserting upload: %w", err)
+			}
 
-// 			space, err := did.Parse(cap.With())
-// 			if err != nil {
-// 				return result.Error[upload.AddOk, failure.IPLDBuilderFailure](
-// 					errors.New(InvalidSpaceErrorName, "invalid space DID: %v", err),
-// 				), nil, nil
-// 			}
-
-// 			root, err := ipldutil.ToCID(cap.Nb().Root)
-// 			if err != nil {
-// 				return nil, nil, err
-// 			}
-
-// 			shards := make([]cid.Cid, 0, len(cap.Nb().Shards))
-// 			for _, link := range cap.Nb().Shards {
-// 				s, err := ipldutil.ToCID(link)
-// 				if err != nil {
-// 					return nil, nil, err
-// 				}
-// 				shards = append(shards, s)
-// 			}
-
-// 			cause, err := ipldutil.ToCID(inv.Link())
-// 			if err != nil {
-// 				return nil, nil, err
-// 			}
-
-// 			err = uploadStore.Upsert(ctx, space, root, shards, cause)
-// 			if err != nil {
-// 				log.Error("failed to upsert upload", zap.Error(err))
-// 				return nil, nil, fmt.Errorf("upserting upload: %w", err)
-// 			}
-
-// 			return result.Ok[upload.AddOk, failure.IPLDBuilderFailure](upload.AddOk{
-// 				Root: cap.Nb().Root,
-// 			}), nil, nil
-// 		})
-// }
+			return res.SetSuccess(&uploadcaps.AddOK{})
+		}),
+	}
+}
